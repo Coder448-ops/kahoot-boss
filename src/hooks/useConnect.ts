@@ -1,8 +1,14 @@
-/* KAHOOT BOSS — shared connect / disconnect orchestration */
+/* KAHOOT BOSS — shared connect / disconnect orchestration.
+   Simulation mode attaches to the local test environment.
+   Live mode performs a REAL join through the connector backend
+   (reserve/session -> challenge -> CometD -> login). A "connected" live
+   status is only ever set after the backend confirms the join. */
+
 import { useCallback, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { validateNickname, validatePin } from '../lib/validation';
-import { checkLiveStatus, validateSession } from '../engine/apiClient';
+import { validateSession } from '../engine/apiClient';
+import { liveApi, resolveLiveBase, LiveBackendError } from '../engine/liveClient';
 
 export interface ConnectInput {
   pin: string;
@@ -12,6 +18,7 @@ export interface ConnectInput {
 
 export function useConnect() {
   const connection = useStore((s) => s.connection);
+  const settings = useStore((s) => s.settings);
   const setConnection = useStore((s) => s.setConnection);
   const pushActivity = useStore((s) => s.pushActivity);
   const pushToast = useStore((s) => s.pushToast);
@@ -24,7 +31,8 @@ export function useConnect() {
 
   const connect = useCallback(
     async (input: ConnectInput): Promise<boolean> => {
-      const pinCheck = validatePin(input.pin);
+      // Live Kahoot PINs are 6–10 digits; simulation accepts the wider test range.
+      const pinCheck = validatePin(input.pin, input.mode === 'live' ? 6 : 4);
       const nickCheck = validateNickname(input.nickname);
       setErrors({ pin: pinCheck.error ?? undefined, nickname: nickCheck.error ?? undefined });
       if (!pinCheck.ok || !nickCheck.ok) return false;
@@ -32,70 +40,122 @@ export function useConnect() {
       const pin = input.pin.trim();
       const nickname = input.nickname.trim();
       setBusy(true);
-      setConnection({ status: 'connecting', pin, nickname, mode: input.mode, detail: `Contacting ${input.mode === 'live' ? 'live integration' : 'test environment'}…`, lastError: null });
 
       try {
         if (input.mode === 'live') {
-          // Honest live path: only connects when an authorized endpoint is configured.
-          let liveEnabled = false;
-          try {
-            const { data } = await checkLiveStatus(7000);
-            liveEnabled = data.liveEnabled;
-          } catch {
-            liveEnabled = false;
-          }
-          if (!liveEnabled) {
-            const msg = 'Live mode is unavailable: no authorized game endpoint is configured (LIVE_GAME_API_URL is empty). Use simulation mode or configure an integration in Settings.';
-            setConnection({ status: 'error', detail: msg, lastError: msg, connectedAt: null });
-            pushActivity('connection', `Live connection refused for PIN ${pin} — no authorized endpoint configured`);
-            pushToast({ title: 'Live connection unavailable', body: 'No authorized endpoint is configured. Simulation mode works without one.', tone: 'warn' });
-            return false;
-          }
-          // Endpoint configured: validate credentials against backend, then mark connected.
-          const { latencyMs } = await validateSession(pin, nickname, 7000);
-          setConnection({ status: 'connected', detail: `Connected to authorized live endpoint (${Math.round(latencyMs)} ms).`, latencyMs, connectedAt: Date.now() });
-          pushActivity('connection', `Connected (live) · PIN ${pin} · ${nickname}`);
-          pushToast({ title: 'Connected to live endpoint', body: `PIN ${pin} · ${Math.round(latencyMs)} ms`, tone: 'success' });
-          return true;
+          return await connectLive(pin, nickname);
         }
-
-        // Simulation path: try backend validation, fall back to local validation honestly.
-        let latencyMs: number | null = null;
-        let via: 'backend' | 'local' = 'local';
-        try {
-          const r = await validateSession(pin, nickname, 5000);
-          latencyMs = r.latencyMs;
-          via = 'backend';
-        } catch {
-          via = 'local';
-        }
-        // Brief, honest handshake delay so users can perceive state change (not a fake loader:
-        // it only runs after validation succeeded and lasts < 600ms).
-        await new Promise((r) => setTimeout(r, 450));
-        setConnection({
-          status: 'connected',
-          detail: via === 'backend' ? `Test environment ready (${Math.round(latencyMs ?? 0)} ms, validated by backend).` : 'Test environment ready (validated locally — backend unreachable).',
-          latencyMs,
-          connectedAt: Date.now(),
-        });
-        pushActivity('connection', `Connected (simulation) · PIN ${pin} · ${nickname} · validated ${via === 'backend' ? 'by backend' : 'locally'}`);
-        pushToast({ title: 'Connected to test environment', body: `PIN ${pin} · player "${nickname}"`, tone: 'success' });
-        return true;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Connection failed.';
-        setConnection({ status: 'error', detail: msg, lastError: msg, connectedAt: null });
-        pushActivity('connection', `Connection failed for PIN ${pin} — ${msg}`);
-        pushToast({ title: 'Connection failed', body: msg, tone: 'error' });
-        return false;
+        return await connectSimulation(pin, nickname);
       } finally {
         setBusy(false);
       }
     },
-    [setConnection, pushActivity, pushToast],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settings.liveBackendUrl, setConnection, pushActivity, pushToast],
   );
+
+  const connectSimulation = async (pin: string, nickname: string): Promise<boolean> => {
+    setConnection({ status: 'connecting', pin, nickname, mode: 'simulation', detail: 'Contacting test environment…', lastError: null });
+    try {
+      let latencyMs: number | null = null;
+      let via: 'backend' | 'local' = 'local';
+      try {
+        const r = await validateSession(pin, nickname, 5000);
+        latencyMs = r.latencyMs;
+        via = 'backend';
+      } catch {
+        via = 'local';
+      }
+      await new Promise((r) => setTimeout(r, 450));
+      setConnection({
+        status: 'connected',
+        detail: via === 'backend' ? `Test environment ready (${Math.round(latencyMs ?? 0)} ms, validated by backend).` : 'Test environment ready (validated locally — backend unreachable).',
+        latencyMs,
+        connectedAt: Date.now(),
+      });
+      pushActivity('connection', `Connected (simulation) · PIN ${pin} · ${nickname} · validated ${via === 'backend' ? 'by backend' : 'locally'}`);
+      pushToast({ title: 'Connected to test environment', body: `PIN ${pin} · player "${nickname}"`, tone: 'success' });
+      return true;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Connection failed.';
+      setConnection({ status: 'error', detail: msg, lastError: msg, connectedAt: null });
+      pushActivity('connection', `Connection failed for PIN ${pin} — ${msg}`);
+      pushToast({ title: 'Connection failed', body: msg, tone: 'error' });
+      return false;
+    }
+  };
+
+  const connectLive = async (pin: string, nickname: string): Promise<boolean> => {
+    const base = resolveLiveBase(settings.liveBackendUrl);
+    setConnection({ status: 'connecting', pin, nickname, mode: 'live', detail: `Joining live game ${pin} via connector ${base}…`, lastError: null });
+
+    // Step 1: the connector itself must be up.
+    try {
+      const { data: health } = await liveApi.health(base, 8000);
+      if (health.sessionActive) {
+        const msg = `Connector already hosts an active live session (${health.sessionState}). Leave it before joining another — one player per connector.`;
+        setConnection({ status: 'error', detail: msg, lastError: msg, connectedAt: null });
+        pushActivity('connection', `Live join refused — connector busy (${health.sessionState})`);
+        pushToast({ title: 'Connector busy', body: msg, tone: 'warn' });
+        return false;
+      }
+      if (!health.kahootReachable) {
+        pushToast({
+          title: 'Connector reports Kahoot unreachable',
+          body: 'Attempting the join anyway — the join itself is the ground truth.',
+          tone: 'warn',
+        });
+      }
+    } catch (e) {
+      const err = e as LiveBackendError;
+      const msg = `Live connector unreachable at ${base}. Start it with \`npm run server\` (or set the connector URL in Settings). Simulation mode remains available.`;
+      setConnection({ status: 'error', detail: msg, lastError: err.message, connectedAt: null });
+      pushActivity('connection', `Live join failed — connector unreachable at ${base}`);
+      pushToast({ title: 'Connector unreachable', body: `No live backend at ${base}.`, tone: 'error' });
+      return false;
+    }
+
+    // Step 2: the real join (reserve -> challenge -> CometD -> login).
+    setConnection({ status: 'connecting', pin, nickname, mode: 'live', detail: `Reserving session for PIN ${pin} with Kahoot…`, lastError: null });
+    try {
+      const { data, latencyMs } = await liveApi.join(base, pin, nickname, 75000);
+      if (data.status === 'awaitingTwoFactor') {
+        setConnection({
+          status: 'connected',
+          detail: `Joined PIN ${pin} — the host requires 2-step verification. Complete the pattern in the Automation Center.`,
+          latencyMs,
+          connectedAt: Date.now(),
+        });
+        pushActivity('connection', `Live join pending 2-step verification · PIN ${pin} · ${nickname}`);
+        pushToast({ title: '2-step verification required', body: 'Complete the host-screen pattern to enter the lobby.', tone: 'warn' });
+        return true;
+      }
+      setConnection({
+        status: 'connected',
+        detail: `Joined live game ${pin} as "${nickname}" in ${Math.round(latencyMs)} ms.`,
+        latencyMs,
+        connectedAt: Date.now(),
+      });
+      pushActivity('connection', `Connected (live) · PIN ${pin} · ${nickname} · ${Math.round(latencyMs)} ms`);
+      pushToast({ title: 'Joined live game', body: `PIN ${pin} · "${nickname}"`, tone: 'success' });
+      return true;
+    } catch (e) {
+      const err = e as LiveBackendError;
+      const msg = err.message || 'Live join failed.';
+      setConnection({ status: 'error', detail: msg, lastError: msg, connectedAt: null });
+      pushActivity('connection', `Live join failed for PIN ${pin} — ${err.code}: ${msg}`);
+      pushToast({ title: 'Live join failed', body: msg, tone: 'error' });
+      return false;
+    }
+  };
 
   const disconnect = useCallback(
     (reason = 'Disconnected by operator.') => {
+      // Best-effort live leave (never blocks the UI, never throws).
+      if (connection.mode === 'live' && (connection.status === 'connected' || connection.status === 'error')) {
+        const base = resolveLiveBase(settings.liveBackendUrl);
+        liveApi.leave(base, 5000).catch(() => undefined);
+      }
       const active = sessions.find((s) => s.id === activeSessionId);
       if (active && (active.status === 'running' || active.status === 'paused')) {
         finishSession(active.id, 'stopped');
@@ -103,7 +163,7 @@ export function useConnect() {
       disconnectStore(reason);
       pushActivity('connection', reason);
     },
-    [sessions, activeSessionId, finishSession, disconnectStore, pushActivity],
+    [sessions, activeSessionId, finishSession, disconnectStore, pushActivity, connection.mode, connection.status, settings.liveBackendUrl],
   );
 
   return { connection, busy, errors, setErrors, connect, disconnect };

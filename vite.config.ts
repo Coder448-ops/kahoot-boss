@@ -9,6 +9,13 @@ export default defineConfig({
     strictPort: false,
     // Allow preview/proxy hosts (sandbox + deploy previews). Dev-only setting.
     allowedHosts: true,
+    // Same-origin access to the live connector during development.
+    proxy: {
+      '/live': {
+        target: 'http://127.0.0.1:3001',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     host: '0.0.0.0',

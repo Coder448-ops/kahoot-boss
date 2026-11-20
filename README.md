@@ -1,65 +1,115 @@
 # KAHOOT BOSS — Intelligence. Automation. Control.
 
-A premium AI-powered quiz automation workbench: an offline-first solving engine, a fully instrumented Automation Center with real timers, honest connection management, session history, analytics, and persistent settings.
+A premium AI-powered quiz automation workbench: an offline-first solving engine, an Automation Center for simulated **and real live games**, honest connection management, session history, analytics, and persistent settings.
 
-> **Honesty by design.** KAHOOT BOSS only uses officially permitted interfaces. The simulation test environment is always available; **live mode refuses to connect unless an authorized endpoint is configured and reachable.** Every status, latency, and diagnostic in the UI is measured live — nothing is faked.
+> **Real connections, honestly reported.** Live mode performs a genuine join against Kahoot's session infrastructure using the same flow as the official web client (reserve/session → challenge → CometD → login). There is no official public gameplay API, so the connector speaks the documented client protocol server-side (browsers can't hold it: no CORS + a stateful socket). Every status, latency, and diagnostic is measured live — failures are reported with meaningful errors, never masked as success.
 
 ## Quick start
 
 ```bash
 npm install
-npm run dev      # → http://localhost:5173
-npm run build    # typecheck + production build
-npm run preview  # serve the production build
+
+# Terminal 1 — web UI (http://localhost:5173)
+npm run dev
+
+# Terminal 2 — live connector backend (http://localhost:3001/live/*)
+npm run server
+```
+
+Simulation mode works with the UI alone. Live mode needs the connector **and** network access to Kahoot.
+
+```bash
+npm run build        # typecheck + production UI build
+npm run server:build # production connector build (→ dist-server, run with npm run server:start)
+npm run test:live    # 48-assertion live-connector suite (challenge, join, play, 2FA, failures)
 ```
 
 ## Environment
 
-Copy `.env.example` to `.env` (never commit real keys):
+Copy `.env.example` to `.env` (never commit real keys). Highlights:
 
 | Variable | Purpose |
 |---|---|
-| `AI_API_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | Server-side cloud solver (OpenAI-compatible). Optional — the app also supports per-user BYOK in Settings. |
-| `LIVE_GAME_API_URL` / `LIVE_GAME_API_KEY` | Authorized live-game endpoint. Optional — empty means live mode is honestly disabled. |
-| `VITE_API_BASE_URL` | Browser → backend base path (default `/api`). |
-| `VITE_APP_VERSION` | Displayed version string. |
+| `VITE_LIVE_BACKEND_URL` | Default connector base (`/live` = dev proxy, same origin). |
+| `AI_API_BASE_URL` / `AI_API_KEY` / `AI_MODEL` | Server-side cloud solver (OpenAI-compatible). Optional — BYOK also available in Settings. |
+| `PORT` | Connector listen port (default 3001). |
+| `KAHOOT_RESERVE_BASE` / `KAHOOT_COMETD_BASE` | Real Kahoot session hosts (defaults `https://kahoot.it` / `wss://kahoot.it`). Override for tests only. |
+| `KAHOOT_CAPTCHA_TOKEN` | Login token sent with joins (documented client value; empty = omit). |
+| `ALLOWED_ORIGINS` | CORS allowlist (`*` for dev). |
+| `TIMEOUT_*_MS` | Reserve / handshake / login / join / 2FA timeouts. |
+| `SERVE_STATIC=1` + `STATIC_DIR=dist` | Single-process deploy: connector also serves the built UI. |
 
 ## Architecture
 
 ```
-├── api/                  # Serverless backend (/api/health, /api/solve, /api/session)
-│   └── shared.ts         # Contracts shared with the client (validation, payloads)
+├── server/                   # Live connector backend (Node + Express + ws)
+│   ├── index.ts              # REST + SSE API, rate limiting, optional static hosting
+│   ├── config.ts             # env-driven configuration
+│   ├── validate.ts           # server-side input validation
+│   └── kahoot/
+│       ├── protocol.ts       # challenge solver (no eval), token derivation, event IDs
+│       ├── bayeux.ts         # minimal CometD/Bayeux client (handshake, heartbeat, pub/sub)
+│       ├── client.ts         # live game client: join → lobby → questions → answers → results
+│       └── __tests__/        # faithful mock + 48-assertion workflow suite
+├── api/                      # Serverless UI backend (/api/health, /api/solve, /api/session)
 ├── src/
-│   ├── engine/           # solver.ts · mathSolver.ts · language.ts · knowledgeBase.ts
-│   │                     # simulation.ts (practice bank) · diagnostics.ts · apiClient.ts
-│   ├── store/            # Typed zustand store + localStorage persistence
-│   ├── hooks/            # useConnect — connect/disconnect orchestration
-│   ├── components/       # AppShell (nav/topbar/toasts) · ui (design system)
-│   └── pages/            # Dashboard · Connection · Solver · Automation ·
-│                         # History · Statistics · Settings · About
+│   ├── engine/               # solver · math · language · knowledge · simulation ·
+│   │                         # diagnostics · apiClient · liveClient (REST+SSE)
+│   ├── store/                # typed zustand store + persistence (sim + live sessions)
+│   ├── hooks/                # useConnect — real connect/disconnect orchestration
+│   ├── components/           # AppShell · ui system · LiveRunner (real-time game UI)
+│   └── pages/                # Dashboard · Connection · Solver · Automation ·
+│                             # History · Statistics · Settings · About
 ```
 
-- **Solver pipeline:** language detection → safe math evaluation (no `eval()`) → curated knowledge base → statistical fallback. Every result carries a method label, confidence score, explanation, and reasoning trace.
-- **Automation runner:** real countdown timers (100 ms tick), auto/manual answering, pause-resume with frozen timers, timeout + low-confidence + solver-error logging.
-- **Backend:** `GET /api/health` (liveness + capability flags), `POST /api/solve` (OpenAI-compatible proxy with BYOK, `501` when unconfigured), `GET/POST /api/session` (live-status report + simulation credential validation).
+### How the live connection works
+
+1. **Reserve** — `GET {reserveBase}/reserve/session/{PIN}/?{ms}`. HTTP 404 means the PIN doesn't exist (reported as `PIN_NOT_FOUND`, never faked). The response carries a JS `challenge` plus the `x-kahoot-session-token` header.
+2. **Solve** — the challenge is parsed (message literal, offset expression via a safe evaluator, char-transform parameters) and computed with exact JS semantics — cross-checked in tests against an independent JS-eval reference. Unrecognized formats raise `CHALLENGE_FAILED` with an honest "protocol changed" message.
+3. **Derive** — base64-decode the session token, XOR with the solution → CometD path token.
+4. **Connect** — Bayeux handshake + heartbeat over WebSocket at `{cometdBase}/cometd/{PIN}/{token}`, subscribe to `/service/{controller,player,status}`.
+5. **Login** — publish `{type:'login', gameid, host, name}`; acceptance (`USERNAME_ACCEPTED`), rejection (`USERNAME_REJECTED` → try another nickname), or 2-step request (`RESET_TWO_FACTOR_AUTH` → operator enters the host-screen pattern, submitted as message id 50).
+6. **Play** — `START_QUIZ` (quiz name, per-question choice counts), `START_QUESTION` (index, type, choices — **Kahoot shows question text on the host screen only**), answers published as message id 45, `REVEAL_ANSWER` returns the genuine verdict (correct / points / total / rank / streak), `GAME_OVER` + `REVEAL_RANKING` close the game. Kicks (`RESET_CONTROLLER`) and drops are surfaced immediately.
+
+Single-player only: one nickname per connector, join throttling, no multi-bot features — by design.
+
+### UI ↔ connector contract
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /live/health` | Liveness + version + protocol + measured Kahoot reachability + session slot state |
+| `GET /live/status` | Current session snapshot |
+| `POST /live/join {pin, nickname}` | Real join → `joined` / `awaitingTwoFactor` or a coded error |
+| `POST /live/two-factor {sequence}` | Submit a 4-shape pattern (`0–3` × 4) |
+| `POST /live/answer {choice}` | Submit an answer (`202 accepted`; verdict arrives via events) |
+| `POST /live/leave` | Leave and close the channel |
+| `GET /live/events` | Server-sent event stream (state, questions, feedback, …) |
+
+Every error is `{status:'error', error, code}` with an honest, actionable message (`PIN_NOT_FOUND`, `NAME_REJECTED`, `RATE_LIMITED`, `LOGIN_TIMEOUT`, `CHALLENGE_FAILED`, `KICKED`, …).
 
 ## Pages
 
 | Route | Purpose |
 |---|---|
-| `/` | Dashboard — greeting, quick connect, engine status, KPIs, current session, activity |
-| `/connect` | Game Connection — PIN/nickname, environment picker, status panel, real diagnostics |
-| `/solver` | AI Solver — question input, 2–4 options, image attach + transcription, confidence, verdicts, history |
-| `/automation` | Automation Center — session setup, live runner, controls, solver insight, event log |
-| `/history` | Session History — search/filter, answer review, JSON/CSV export, import |
+| `/` | Dashboard — greeting, quick connect (sim + live), engine status, KPIs, activity |
+| `/connect` | Game Connection — PIN/nickname, environment picker, status, real diagnostics |
+| `/solver` | AI Solver — question input, 2–4 options, image context, confidence, verdicts, history |
+| `/automation` | Automation Center — simulation runner **and** live game runner (lobby, 2FA, questions, solver-assisted submit, real scoreboard) |
+| `/history` | Session History — sim + live records, answer review with real scores, JSON/CSV export, import |
 | `/stats` | Statistics — accuracy, latency, methods, categories (all derived from real data) |
-| `/settings` | Profile, solver engine + cloud test, live integration test, defaults, data backup |
+| `/settings` | Profile, solver engine + cloud test, connector backend + health check, defaults, backup |
 | `/about` | Product, honesty statement, architecture |
 
-## Deploy (Vercel)
+## Deploy
 
-The repo ships with `vercel.json` (SPA rewrites + `api/` functions). Import the repo in Vercel, set env vars as needed, deploy. No build configuration required beyond defaults (`npm run build` → `dist`).
+- **UI**: import the repo in Vercel (`vercel.json` included; `npm run build` → `dist`). Set `VITE_LIVE_BACKEND_URL` to your connector URL.
+- **Connector**: any long-lived Node host (VPS, Railway, Render, Fly…): `npm ci && npm run server:build && npm run server:start` (needs outbound access to Kahoot). Or single-process: build the UI, then `SERVE_STATIC=1 STATIC_DIR=dist npm run server:start`.
+
+## Testing
+
+- `npm run test:live` — full workflow against a faithful mock: challenge solving (4 format variants vs JS-eval reference), token derivation, join → 2-question game → real feedback, invalid PIN, bad challenge, rejected name, silent server, wrong/right 2FA patterns, kick, plus REST validation, busy-join, SSE streaming and leave. **48/48 passing.**
+- Live verification against production Kahoot requires a network with Kahoot access and a real game PIN; the connector reports every step, so any protocol drift shows up as an explicit error, not a fake status.
 
 ## Fair use
 
-Kahoot! is a trademark of Kahoot! ASA. KAHOOT BOSS is an independent tool, not affiliated with or endorsed by Kahoot!. Use only with quizzes and integrations you are authorized to automate.
+Kahoot! is a trademark of Kahoot! ASA. KAHOOT BOSS is an independent tool, not affiliated with or endorsed by Kahoot!. Only join games you are invited to, respect hosts and players, and comply with Kahoot!'s terms. The connector deliberately supports a single player — please don't use it to disrupt games.

@@ -41,6 +41,9 @@ export interface SessionAnswer {
   method: SolverMethod | 'manual';
   confidence: number | null;
   latencyMs: number;
+  points?: number | null;
+  rank?: number | null;
+  streak?: number | null;
 }
 
 export type SessionStatus = 'running' | 'paused' | 'completed' | 'stopped';
@@ -109,8 +112,7 @@ export interface Settings {
   confidenceThreshold: number;
   defaultQuestionCount: number;
   defaultTimeLimitSec: number;
-  liveApiUrl: string;
-  liveApiKey: string;
+  liveBackendUrl: string;
   persistHistory: boolean;
   soundEnabled: boolean;
 }

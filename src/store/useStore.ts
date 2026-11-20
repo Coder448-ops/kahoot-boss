@@ -30,8 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   confidenceThreshold: 0.4,
   defaultQuestionCount: 10,
   defaultTimeLimitSec: 20,
-  liveApiUrl: '',
-  liveApiKey: '',
+  liveBackendUrl: (import.meta.env.VITE_LIVE_BACKEND_URL as string | undefined)?.trim() || '/live',
   persistHistory: true,
   soundEnabled: false,
 };
@@ -84,6 +83,9 @@ interface Store {
   setSessionStatus: (sessionId: string, status: SessionStatus) => void;
   setSessionError: (sessionId: string, error: string) => void;
   updateActiveSessionControls: (patch: Partial<Pick<Session, 'autoAnswer' | 'answerDelayMs' | 'confidenceThreshold'>>) => void;
+  appendLiveQuestion: (sessionId: string, q: Question) => void;
+  updateLiveQuestion: (sessionId: string, questionId: string, patch: Partial<Question>) => void;
+  upsertLiveAnswer: (sessionId: string, answer: SessionAnswer) => void;
   finishSession: (sessionId: string, status: 'completed' | 'stopped') => void;
   deleteSession: (id: string) => void;
   clearSessions: () => void;
@@ -193,6 +195,36 @@ export const useStore = create<Store>()(
           sessions: s.sessions.map((ses) =>
             ses.id === s.activeSessionId ? { ...ses, ...patch } : ses,
           ),
+        })),
+
+      appendLiveQuestion: (sessionId, q) =>
+        set((s) => ({
+          sessions: s.sessions.map((ses) =>
+            ses.id === sessionId && !ses.questions.some((x) => x.id === q.id)
+              ? { ...ses, questions: [...ses.questions, q] }
+              : ses,
+          ),
+        })),
+
+      updateLiveQuestion: (sessionId, questionId, patch) =>
+        set((s) => ({
+          sessions: s.sessions.map((ses) =>
+            ses.id === sessionId
+              ? { ...ses, questions: ses.questions.map((x) => (x.id === questionId ? { ...x, ...patch } : x)) }
+              : ses,
+          ),
+        })),
+
+      upsertLiveAnswer: (sessionId, answer) =>
+        set((s) => ({
+          sessions: s.sessions.map((ses) => {
+            if (ses.id !== sessionId) return ses;
+            const idx = ses.answers.findIndex((a) => a.questionId === answer.questionId);
+            if (idx === -1) return { ...ses, answers: [...ses.answers, answer] };
+            const answers = [...ses.answers];
+            answers[idx] = { ...answers[idx], ...answer };
+            return { ...ses, answers };
+          }),
         })),
 
       finishSession: (sessionId, status) => {

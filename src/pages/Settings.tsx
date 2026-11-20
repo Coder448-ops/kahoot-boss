@@ -4,6 +4,7 @@ import { Bot, CheckCircle2, Database, Eye, EyeOff, FlaskConical, Radio, User, XC
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Notice, PageHeader, Select, Slider, StatusDot, Toggle } from '../components/ui';
 import { useStore, DEFAULT_SETTINGS } from '../store/useStore';
 import { solveViaApi } from '../engine/apiClient';
+import { liveApi, resolveLiveBase, type LiveHealth } from '../engine/liveClient';
 import { validateApiUrl, validateDisplayName } from '../lib/validation';
 import { downloadFile, formatMs } from '../lib/utils';
 
@@ -26,10 +27,10 @@ export default function Settings() {
   const [role, setRole] = React.useState(profile.role);
   const [nameError, setNameError] = React.useState<string | null>(null);
   const [showKey, setShowKey] = React.useState(false);
-  const [showLiveKey, setShowLiveKey] = React.useState(false);
   const [apiTest, setApiTest] = React.useState<{ ok: boolean; msg: string } | null>(null);
   const [apiTesting, setApiTesting] = React.useState(false);
-  const [liveTest, setLiveTest] = React.useState<{ ok: boolean; msg: string } | null>(null);
+  const [liveHealth, setLiveHealth] = React.useState<LiveHealth | null>(null);
+  const [liveHealthError, setLiveHealthError] = React.useState<string | null>(null);
   const [liveTesting, setLiveTesting] = React.useState(false);
   const [confirmReset, setConfirmReset] = React.useState(false);
 
@@ -77,27 +78,16 @@ export default function Settings() {
     }
   };
 
-  const testLiveEndpoint = async () => {
+  const testConnector = async () => {
     setLiveTesting(true);
-    setLiveTest(null);
-    const url = settings.liveApiUrl.trim();
-    if (!url) {
-      setLiveTest({ ok: false, msg: 'No live endpoint URL is set — live mode is intentionally disabled. Simulation mode is unaffected.' });
-      setLiveTesting(false);
-      return;
-    }
+    setLiveHealth(null);
+    setLiveHealthError(null);
     try {
-      const started = performance.now();
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 8000);
-      try {
-        const res = await fetch(url, { method: 'GET', signal: ctrl.signal });
-        setLiveTest({ ok: res.ok, msg: res.ok ? `Endpoint responded HTTP ${res.status} in ${formatMs(performance.now() - started)}. Verify with your integration provider that this is an authorized game interface.` : `Endpoint responded HTTP ${res.status} — not usable as a game integration.` });
-      } finally {
-        clearTimeout(timer);
-      }
+      const { data } = await liveApi.health(resolveLiveBase(settings.liveBackendUrl), 9000);
+      setLiveHealth(data);
+      pushActivity('settings', `Connector check: v${data.version} · Kahoot ${data.kahootReachable ? `reachable (${data.kahootLatencyMs} ms)` : 'unreachable'}`);
     } catch (e) {
-      setLiveTest({ ok: false, msg: e instanceof Error && e.name === 'AbortError' ? 'Endpoint timed out after 8s — unreachable.' : `Endpoint unreachable (${e instanceof Error ? e.message : 'network error'}).` });
+      setLiveHealthError(e instanceof Error ? e.message : 'Connector check failed.');
     } finally {
       setLiveTesting(false);
     }
@@ -106,7 +96,7 @@ export default function Settings() {
   const exportAll = () => {
     downloadFile(
       `kahoot-boss-backup-${new Date().toISOString().slice(0, 10)}.json`,
-      JSON.stringify({ exportedAt: new Date().toISOString(), profile, settings: { ...settings, apiKey: '', liveApiKey: '' }, sessions, solves, activity }, null, 2),
+      JSON.stringify({ exportedAt: new Date().toISOString(), profile, settings: { ...settings, apiKey: '' }, sessions, solves, activity }, null, 2),
     );
     pushToast({ title: 'Backup exported', body: 'API keys were excluded from the file for safety.', tone: 'success' });
   };
@@ -184,33 +174,45 @@ export default function Settings() {
           </CardBody>
         </Card>
 
-        {/* Live integration */}
+        {/* Live connector backend */}
         <Card>
           <CardHeader
-            title="Live game integration"
-            subtitle="Only officially permitted endpoints. Empty = live mode honestly disabled."
-            right={<Badge tone={settings.liveApiUrl.trim() ? 'warn' : 'muted'}><Radio size={12} /> {settings.liveApiUrl.trim() ? 'Custom URL set' : 'Not configured'}</Badge>}
+            title="Live connector backend"
+            subtitle="The server that performs real joins. Same-origin /live in dev; your deployed URL in production."
+            right={<Badge tone={liveHealth ? (liveHealth.kahootReachable ? 'good' : 'warn') : 'muted'}><Radio size={12} /> {liveHealth ? (liveHealth.kahootReachable ? 'Ready' : 'No Kahoot route') : 'Unchecked'}</Badge>}
           />
           <CardBody className="space-y-4">
-            <Notice tone="info" title="Authorized interfaces only" body="KAHOOT BOSS does not ship with any unofficial Kahoot connector. If your organization provides a permitted game-data endpoint, configure it here; otherwise leave this empty and use simulation mode." />
-            <Field label="Live endpoint URL" hint="Optional. Must be an endpoint you are authorized to use.">
-              <Input value={settings.liveApiUrl} onChange={(e) => updateSettings({ liveApiUrl: e.target.value })} placeholder="https://…" />
-            </Field>
-            <Field label="Live API key" hint="Optional. Stored only in this browser.">
-              <div className="relative">
-                <Input type={showLiveKey ? 'text' : 'password'} value={settings.liveApiKey} onChange={(e) => updateSettings({ liveApiKey: e.target.value })} placeholder="…" className="pr-11" />
-                <button onClick={() => setShowLiveKey(!showLiveKey)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted hover:text-ink" title={showLiveKey ? 'Hide key' : 'Show key'}>
-                  {showLiveKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
+            <Notice tone="info" title="How live mode connects" body="The connector (server/) runs beside this UI: it reserves a real seat with Kahoot, solves the session challenge, and holds the game channel open. Run it with `npm run server`, or deploy server/ to any Node host and paste its URL below." />
+            <Field label="Connector base URL" hint="Default /live uses the dev proxy (same origin). Example remote: https://your-connector.example.com/live">
+              <Input value={settings.liveBackendUrl} onChange={(e) => updateSettings({ liveBackendUrl: e.target.value })} placeholder="/live" />
             </Field>
             <div>
-              <Button variant="secondary" loading={liveTesting} onClick={testLiveEndpoint}><Radio size={16} /> Test endpoint reachability</Button>
-              {liveTest && (
-                <p className={`mt-2 flex items-start gap-2 rounded-xl border px-3.5 py-2.5 text-[13px] leading-relaxed ${liveTest.ok ? 'border-good/30 bg-good/5 text-emerald-200' : 'border-warn/30 bg-warn/5 text-amber-200'}`}>
-                  <StatusDot tone={liveTest.ok ? 'good' : 'warn'} />
-                  {liveTest.msg}
+              <Button variant="secondary" loading={liveTesting} onClick={testConnector}><Radio size={16} /> Check connector health</Button>
+              {liveHealthError && (
+                <p className="mt-2 flex items-start gap-2 rounded-xl border border-bad/30 bg-bad/5 px-3.5 py-2.5 text-[13px] leading-relaxed text-red-200">
+                  <StatusDot tone="bad" /> {liveHealthError}
                 </p>
+              )}
+              {liveHealth && (
+                <div className="mt-2.5 rounded-xl border border-line bg-void/50 p-3.5">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+                    <StatusDot tone={liveHealth.kahootReachable ? 'good' : 'warn'} />
+                    Connector v{liveHealth.version} · protocol {liveHealth.protocol}
+                  </p>
+                  <dl className="mt-2.5 grid grid-cols-2 gap-2">
+                    {[
+                      ['Kahoot route', liveHealth.kahootReachable ? `yes · ${formatMs(liveHealth.kahootLatencyMs ?? 0)}` : 'NO — joins will fail'],
+                      ['Session slot', liveHealth.sessionActive ? `busy (${liveHealth.sessionState})` : 'free'],
+                      ['Reserve', liveHealth.reserveBase],
+                      ['CometD', liveHealth.cometdBase],
+                    ].map(([k, v]) => (
+                      <div key={k} className="rounded-lg border border-line bg-void/60 px-2.5 py-2">
+                        <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted">{k}</dt>
+                        <dd className="mt-0.5 truncate font-mono text-xs text-ink" title={v}>{v}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
               )}
             </div>
           </CardBody>

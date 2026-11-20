@@ -31,9 +31,10 @@ export default function About() {
             </h2>
             <p className="mt-1 font-display text-sm font-medium uppercase tracking-[0.2em] text-muted">Intelligence · Automation · Control</p>
             <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted">
-              KAHOOT BOSS is a web-based automation platform for quiz practice and testing. It combines an offline-first
-              AI solving engine, a fully instrumented automation center with real timers, and honest connection
-              management that clearly separates the always-available simulation environment from optional live integrations.
+              KAHOOT BOSS is a web-based automation platform for quiz play and testing. It combines an offline-first
+              AI solving engine, a real live-game connector that joins Kahoot sessions for genuine play, and a
+              simulation environment for safe practice — with honest connection management throughout: every status
+              is measured, and failures are reported, never faked.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Button variant="primary" size="sm" onClick={() => navigate('/automation')}><Zap size={15} /> Start automating</Button>
@@ -49,6 +50,7 @@ export default function About() {
           <CardBody className="space-y-3">
             {[
               ['AI solving engine', `${KNOWLEDGE_BASE.length}+ curated facts, safe math evaluator, statistical fallback — every answer carries a method label and confidence score.`],
+              ['Real live connection', 'Genuine joins via reserve/session → challenge → CometD → login, 2-step verification support, live questions, real submissions and Kahoot-reported scores.'],
               ['Automation center', `Real countdowns, auto/manual answering, pause-resume with frozen timers, event log, error detection and a ${getQuestionBankSize()}-question practice bank.`],
               ['Analytics', 'Accuracy, latency, method distribution and category performance — computed live from your data, never seeded.'],
               ['History & export', 'Full session records with per-question review, JSON/CSV export and import.'],
@@ -68,10 +70,12 @@ export default function About() {
               <Notice
                 tone="success"
                 title="No fake connections, ever"
-                body="Live mode refuses to connect unless an authorized endpoint is configured and reachable. Statuses, latencies and diagnostics on every page are measured live."
+                body="Live mode performs a genuine join and only reports “connected” after Kahoot confirms it. Invalid PINs, rejected nicknames, kicks and drops are reported with meaningful errors — a failure is never displayed as success."
               />
               <p className="text-[13px] leading-relaxed text-muted">
-                KAHOOT BOSS only uses officially permitted interfaces. The simulation environment exists so teams can
+                There is no official public gameplay API, so the connector speaks the same documented session protocol
+                as the official web client — as a single player, one nickname per connector, with join throttling and
+                no multi-bot features. Only join games you are invited to. The simulation environment exists so teams can
                 practice, benchmark solvers and test automation safely without touching any third-party game service.
                 Kahoot! is a trademark of Kahoot! ASA; this is an independent tool and is not affiliated with or
                 endorsed by Kahoot!.
@@ -86,6 +90,7 @@ export default function About() {
                 {[
                   [<Bot key="i" size={17} className="text-accent" />, 'Engine layer', 'solver · math parser · language detection · knowledge base'],
                   [<FlaskConical key="i" size={17} className="text-accent2" />, 'Simulation layer', 'practice bank · session runner · real timers'],
+                  [<Plug2 key="i" size={17} className="text-accent2" />, 'Connector layer', 'challenge solver · Bayeux client · live game client · REST+SSE'],
                   [<Server key="i" size={17} className="text-good" />, 'API layer', '/api/health · /api/solve · /api/session (serverless-ready)'],
                   [<Database key="i" size={17} className="text-warn" />, 'State layer', 'typed store · localStorage persistence · import/export'],
                   [<Gauge key="i" size={17} className="text-muted" />, 'UI layer', 'React + TypeScript · Tailwind · responsive shell'],

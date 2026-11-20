@@ -142,9 +142,9 @@ export default function Dashboard() {
             {mode === 'live' && (
               <div className="mt-4">
                 <Notice
-                  tone="warn"
-                  title="Live mode requires an authorized integration"
-                  body="KAHOOT BOSS only connects through officially permitted interfaces. Without a configured endpoint, live mode will honestly refuse to connect — simulation mode is fully functional."
+                  tone="info"
+                  title="Live mode joins real games"
+                  body="Live mode performs a genuine join through the connector backend (reserve → challenge → CometD → login). The connector must be running (`npm run server`) and able to reach Kahoot — any failure is reported honestly, never faked."
                   action={<Button size="sm" variant="secondary" onClick={() => navigate('/settings')}>Open configuration <ArrowRight size={14} /></Button>}
                 />
               </div>

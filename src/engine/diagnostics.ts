@@ -2,7 +2,8 @@
    Every check performs a REAL measurement; nothing is simulated. */
 
 import type { DiagnosticCheck, Settings } from '../lib/types';
-import { checkHealth, checkLiveStatus } from './apiClient';
+import { checkHealth } from './apiClient';
+import { liveApi, resolveLiveBase } from './liveClient';
 import { solverSelfTest } from './solver';
 
 export type DiagnosticProgress = (check: DiagnosticCheck) => void;
@@ -63,23 +64,38 @@ async function checkBackend(): Promise<DiagnosticCheck> {
   }
 }
 
-async function checkLive(_settings: Settings): Promise<DiagnosticCheck> {
-  const c = entry('live', 'Live game integration');
+async function checkLive(settings: Settings): Promise<DiagnosticCheck> {
+  const c = entry('live', 'Live connector backend');
+  const base = resolveLiveBase(settings.liveBackendUrl);
   try {
-    const { data } = await checkLiveStatus(6000);
-    if (data.liveEnabled) {
-      return { ...c, status: 'pass', detail: 'Live integration endpoint is configured server-side and reports ready.' };
+    const { data, latencyMs } = await liveApi.health(base, 9000);
+    if (!data.kahootReachable) {
+      return {
+        ...c,
+        status: 'warn',
+        detail: `Connector v${data.version} (${data.protocol}) is up at ${base}, but it cannot reach Kahoot from its network — joins will fail until Kahoot is reachable. Simulation mode is unaffected.`,
+        latencyMs,
+      };
+    }
+    if (data.sessionActive) {
+      return {
+        ...c,
+        status: 'warn',
+        detail: `Connector is online (Kahoot reachable in ${Math.round(data.kahootLatencyMs ?? 0)} ms) but busy with another live session (${data.sessionState}).`,
+        latencyMs,
+      };
     }
     return {
       ...c,
-      status: 'warn',
-      detail: 'No authorized live-game endpoint is configured (LIVE_GAME_API_URL is empty). Simulation mode is available; live mode stays disabled until an authorized integration is configured.',
+      status: 'pass',
+      detail: `Connector v${data.version} online — Kahoot reachable in ${Math.round(data.kahootLatencyMs ?? 0)} ms, session slot free.`,
+      latencyMs,
     };
-  } catch {
+  } catch (e) {
     return {
       ...c,
       status: 'warn',
-      detail: 'Live-integration status could not be verified because the backend API is unreachable. Simulation mode remains available.',
+      detail: `Live connector unreachable at ${base} (${e instanceof Error ? e.message : 'network error'}). Start it with \`npm run server\`, or set its URL in Settings. Simulation mode remains available.`,
     };
   }
 }

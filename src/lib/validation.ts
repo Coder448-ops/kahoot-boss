@@ -5,12 +5,12 @@ export interface ValidationResult {
   error: string | null;
 }
 
-export function validatePin(pin: string): ValidationResult {
+export function validatePin(pin: string, minDigits = 4): ValidationResult {
   const v = pin.trim();
   if (!v) return { ok: false, error: 'Game PIN is required.' };
   if (!/^\d+$/.test(v)) return { ok: false, error: 'Game PIN must contain digits only.' };
-  if (v.length < 4 || v.length > 10)
-    return { ok: false, error: 'Game PIN must be between 4 and 10 digits.' };
+  if (v.length < minDigits || v.length > 10)
+    return { ok: false, error: `Game PIN must be between ${minDigits} and 10 digits.` };
   return { ok: true, error: null };
 }
 

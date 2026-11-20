@@ -1,5 +1,6 @@
 /* /api/session
-   GET  — reports whether an authorized live integration is configured.
+   GET  — explains that live availability is reported by the connector
+          backend (this stateless function cannot know it).
    POST — validates { pin, nickname } for the simulation environment and
           returns a short-lived local validation token. This is NOT a
           Kahoot connection and is labeled as such everywhere. */
@@ -9,13 +10,13 @@ import { randomBytes } from 'crypto';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default async function handler(req: any, res: any): Promise<void> {
   if (req.method === 'GET') {
-    const liveEnabled = Boolean(process.env.LIVE_GAME_API_URL);
+    // Live availability is determined by the connector backend (server/),
+    // which the browser queries directly — this stateless function cannot
+    // know its state, so it reports that honestly instead of guessing.
     const body: LiveStatusPayload = {
       status: 'ok',
-      liveEnabled,
-      message: liveEnabled
-        ? 'An authorized live-game endpoint is configured.'
-        : 'No authorized live-game endpoint is configured. Simulation mode only.',
+      liveEnabled: false,
+      message: 'Live availability is reported by the connector backend configured in Settings (GET /live/health) — query it directly.',
     };
     json(res, 200, body);
     return;

@@ -14,7 +14,7 @@ function sessionToRows(s: Session): string[][] {
     a.questionText,
     a.category,
     a.pickedIndex === null ? '—' : `${a.pickedIndex + 1}. ${a.options[a.pickedIndex] ?? ''}`,
-    `${a.correctIndex + 1}. ${a.options[a.correctIndex] ?? ''}`,
+    a.correctIndex >= 0 ? `${a.correctIndex + 1}. ${a.options[a.correctIndex] ?? ''}` : 'not disclosed by host',
     a.correct === null ? 'unanswered' : a.correct ? 'correct' : 'wrong',
     a.method,
     a.confidence === null ? '—' : `${Math.round(a.confidence * 100)}%`,
@@ -222,11 +222,12 @@ export default function History() {
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] font-medium text-ink">Q{i + 1}. {a.questionText}</p>
                         <p className="mt-1 text-xs text-muted">
-                          Picked: {a.pickedIndex === null ? '— (unanswered)' : <span className="text-ink/80">{a.options[a.pickedIndex]}</span>}
-                          {' · '}Correct: <span className="text-good">{a.options[a.correctIndex]}</span>
+                          Picked: {a.pickedIndex === null ? '— (unanswered)' : <span className="text-ink/80">{a.options[a.pickedIndex] ?? `choice #${a.pickedIndex + 1}`}</span>}
+                          {' · '}Correct: {a.correctIndex >= 0 ? <span className="text-good">{a.options[a.correctIndex] ?? `choice #${a.correctIndex + 1}`}</span> : <span className="italic">not disclosed by host</span>}
                         </p>
                         <p className="mt-0.5 font-mono text-[11px] text-muted">
                           {a.method} · {a.confidence !== null ? `${Math.round(a.confidence * 100)}%` : 'manual'} · {formatMs(a.latencyMs)}{a.timedOut ? ' · TIMEOUT' : ''}
+                          {a.points !== null && a.points !== undefined ? ` · +${a.points} pts` : ''}{a.rank !== null && a.rank !== undefined ? ` · rank #${a.rank}` : ''}{a.streak ? ` · streak ×${a.streak}` : ''}
                         </p>
                       </div>
                       {a.pickedIndex !== null && <OptionMarker index={a.pickedIndex} size={26} />}

@@ -42,7 +42,7 @@ export default function Connection() {
     <div>
       <PageHeader
         title="Game Connection"
-        subtitle="Attach to the authorized test environment or a configured live endpoint. Every status on this page reflects a real check — nothing is simulated."
+        subtitle="Attach to the authorized test environment — or join a real live game through the connector. Every status on this page reflects a real check."
         right={
           connected ? (
             <Button variant="secondary" size="sm" onClick={() => navigate('/automation')}>
@@ -68,7 +68,7 @@ export default function Connection() {
           <CardBody>
             <form onSubmit={handleConnect} className="space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Game PIN" error={errors.pin} hint="4–10 digits">
+                <Field label="Game PIN" error={errors.pin} hint={mode === 'live' ? 'Live PINs are 6–10 digits' : '4–10 digits'}>
                   <Input mono inputMode="numeric" placeholder="482913" value={pin} maxLength={10} onChange={(e) => setPin(e.target.value.replace(/\s/g, ''))} />
                 </Field>
                 <Field label="Player nickname" error={errors.nickname} hint="2–15 characters">
@@ -95,7 +95,7 @@ export default function Connection() {
                       <span className="text-sm font-semibold text-ink">Live</span>
                       {mode === 'live' && <CheckCircle2 size={15} className="ml-auto text-accent2" />}
                     </span>
-                    <span className="mt-1.5 block text-xs leading-relaxed text-muted">Officially permitted endpoint only. Refuses to connect unless an authorized integration is configured.</span>
+                    <span className="mt-1.5 block text-xs leading-relaxed text-muted">Real join through the connector backend: reserve/session → challenge → CometD → login. Requires the connector (`npm run server`) and network access to Kahoot.</span>
                   </button>
                 </div>
               </div>
@@ -115,6 +115,17 @@ export default function Connection() {
                 </Button>
               </div>
             </form>
+
+            {mode === 'live' && (
+              <div className="mt-4">
+                <Notice
+                  tone="info"
+                  title="Why a connector backend?"
+                  body="Browsers cannot hold this connection directly: Kahoot's session endpoints reject cross-origin calls from arbitrary pages, and the game channel is a stateful socket that must stay open for the entire game. The connector performs the real handshake server-side and streams it to this UI — the same flow as the official web client, one player at a time."
+                  action={<Button size="sm" variant="secondary" onClick={() => navigate('/settings')}>Connector settings</Button>}
+                />
+              </div>
+            )}
 
             {connection.status === 'error' && connection.lastError && (
               <div className="mt-4">

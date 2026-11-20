@@ -2,7 +2,7 @@
    Talks to /api/* (Vercel serverless in production). Every call has a timeout
    and honest error reporting — failures are surfaced, never faked. */
 
-import type { DiagnosticsPayload, HealthPayload, LiveStatusPayload, SolveApiPayload } from '../../api/shared';
+import type { DiagnosticsPayload, HealthPayload, SolveApiPayload } from '../../api/shared';
 
 function apiBase(): string {
   const v = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
@@ -42,10 +42,6 @@ async function fetchJson<T>(url: string, init: RequestInit, timeoutMs: number): 
 
 export async function checkHealth(timeoutMs = 6000): Promise<{ data: HealthPayload; latencyMs: number }> {
   return fetchJson<HealthPayload>(`${apiBase()}/health`, { method: 'GET' }, timeoutMs);
-}
-
-export async function checkLiveStatus(timeoutMs = 6000): Promise<{ data: LiveStatusPayload; latencyMs: number }> {
-  return fetchJson<LiveStatusPayload>(`${apiBase()}/session`, { method: 'GET' }, timeoutMs);
 }
 
 export interface ApiSolveOptions {

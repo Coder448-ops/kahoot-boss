@@ -12,6 +12,7 @@ import {
   Info,
   Pause,
   Play,
+  Radio,
   SkipForward,
   Square,
   Timer,
@@ -39,6 +40,9 @@ import {
   Toggle,
 } from '../components/ui';
 import { useStore, sessionStats } from '../store/useStore';
+import { useConnect } from '../hooks/useConnect';
+import LiveRunner from '../components/LiveRunner';
+import { liveApi, resolveLiveBase, type LiveHealth } from '../engine/liveClient';
 import { buildSessionQuestions, getQuestionBankSize } from '../engine/simulation';
 import { methodLabel, solveLocal } from '../engine/solver';
 import { solveViaApi, checkHealth } from '../engine/apiClient';
@@ -99,6 +103,11 @@ export default function Automation() {
   const [delay, setDelay] = React.useState(settings.answerDelayMs);
   const [threshold, setThreshold] = React.useState(settings.confidenceThreshold);
   const [setupErrors, setSetupErrors] = React.useState<{ pin?: string; nickname?: string }>({});
+  const [setupTab, setSetupTab] = React.useState<'simulation' | 'live'>('simulation');
+  const [liveHealth, setLiveHealth] = React.useState<LiveHealth | null>(null);
+  const [liveHealthLoading, setLiveHealthLoading] = React.useState(false);
+  const [liveHealthError, setLiveHealthError] = React.useState<string | null>(null);
+  const { connect: connectLive, busy: liveBusy } = useConnect();
 
   React.useEffect(() => {
     if (!prefilled) {
@@ -338,6 +347,30 @@ export default function Automation() {
   }, [active?.id, qIndex, active?.status]);
 
   /* ---------- actions ---------- */
+  const checkConnector = async (): Promise<void> => {
+    setLiveHealthLoading(true);
+    setLiveHealthError(null);
+    setLiveHealth(null);
+    try {
+      const { data } = await liveApi.health(resolveLiveBase(settings.liveBackendUrl), 9000);
+      setLiveHealth(data);
+    } catch (e) {
+      setLiveHealthError(e instanceof Error ? e.message : 'Connector check failed.');
+    } finally {
+      setLiveHealthLoading(false);
+    }
+  };
+
+  const handleLiveJoin = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault();
+    const pinCheck = validatePin(pin, 6);
+    const nickCheck = validateNickname(nickname);
+    setSetupErrors({ pin: pinCheck.error ?? undefined, nickname: nickCheck.error ?? undefined });
+    if (!pinCheck.ok || !nickCheck.ok) return;
+    await connectLive({ pin, nickname, mode: 'live' });
+    // On success the connection flips to live-connected and <LiveRunner/> takes over.
+  };
+
   const handleStart = (e: React.FormEvent) => {
     e.preventDefault();
     const pinCheck = validatePin(pin);
@@ -411,6 +444,10 @@ export default function Automation() {
   };
 
   /* ================= RENDER ================= */
+  const liveConnected = connection.status === 'connected' && connection.mode === 'live';
+  if (liveConnected) {
+    return <LiveRunner />;
+  }
   if (!active) {
     const summary = lastSummary;
     const sStats = summary ? sessionStats(summary) : null;
@@ -418,7 +455,7 @@ export default function Automation() {
       <div>
         <PageHeader
           title="Automation Center"
-          subtitle="Configure and run automated test sessions in the authorized simulation environment — real timers, real scoring, full operator control."
+          subtitle="Automate the simulation test environment — or join and play a real live game through the connector."
         />
         {summary && sStats && (
           <Card className="mb-4" glow>
@@ -449,6 +486,26 @@ export default function Automation() {
           </Card>
         )}
 
+        <div className="mb-4 flex gap-1 rounded-xl border border-line bg-panel/70 p-1" role="tablist" aria-label="Session type">
+          <button
+            role="tab"
+            aria-selected={setupTab === 'simulation'}
+            onClick={() => setSetupTab('simulation')}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${setupTab === 'simulation' ? 'bg-accent/20 text-ink shadow-[inset_0_0_0_1px_rgba(139,92,246,0.4)]' : 'text-muted hover:text-ink'}`}
+          >
+            <FlaskConical size={16} /> Simulation
+          </button>
+          <button
+            role="tab"
+            aria-selected={setupTab === 'live'}
+            onClick={() => setSetupTab('live')}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition ${setupTab === 'live' ? 'bg-accent2/15 text-ink shadow-[inset_0_0_0_1px_rgba(6,182,212,0.4)]' : 'text-muted hover:text-ink'}`}
+          >
+            <Radio size={16} /> Live game
+          </button>
+        </div>
+
+        {setupTab === 'simulation' ? (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
           <Card className="xl:col-span-3" glow>
             <CardHeader title="New automated session" subtitle="Identity, question set and answering behavior." />
@@ -509,11 +566,80 @@ export default function Automation() {
                 ))}
               </CardBody>
             </Card>
-            {connection.mode === 'live' && connection.status === 'connected' && (
-              <Notice tone="info" title="Live identity attached" body="You are connected with a live identity, but automated answering runs in the simulation test environment until a live question feed is provided by the authorized endpoint." />
-            )}
           </div>
         </div>
+        ) : (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
+          <Card className="xl:col-span-3" glow>
+            <CardHeader
+              title="Join a real live game"
+              subtitle="The connector performs a genuine join: reserve/session → challenge → CometD → login."
+              right={
+                liveHealth ? (
+                  <Badge tone={liveHealth.kahootReachable ? 'good' : 'warn'}>
+                    <StatusDot tone={liveHealth.kahootReachable ? 'good' : 'warn'} />
+                    {liveHealth.kahootReachable ? 'Kahoot reachable' : 'Kahoot unreachable'}
+                  </Badge>
+                ) : undefined
+              }
+            />
+            <CardBody>
+              <form onSubmit={handleLiveJoin} className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="Game PIN" error={setupErrors.pin} hint="Live PINs are 6–10 digits">
+                    <Input mono inputMode="numeric" value={pin} maxLength={10} placeholder="482913" onChange={(e) => setPin(e.target.value.replace(/\s/g, ''))} />
+                  </Field>
+                  <Field label="Player nickname" error={setupErrors.nickname} hint="2–15 characters">
+                    <Input value={nickname} maxLength={15} placeholder="Player-1" onChange={(e) => setNickname(e.target.value)} />
+                  </Field>
+                </div>
+                <div className="rounded-xl border border-line bg-void/40 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[13px] font-medium text-ink/90">Connector: <span className="font-mono">{resolveLiveBase(settings.liveBackendUrl)}</span></p>
+                    <Button variant="secondary" size="sm" onClick={checkConnector} loading={liveHealthLoading}>Check connector</Button>
+                    <Button variant="ghost" size="sm" onClick={() => navigate('/settings')}>Change URL</Button>
+                  </div>
+                  {liveHealthError && <p className="mt-2 text-[13px] text-bad">{liveHealthError}</p>}
+                  {liveHealth && (
+                    <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {[['Version', liveHealth.version], ['Protocol', liveHealth.protocol], ['Kahoot', liveHealth.kahootReachable ? `${formatMs(liveHealth.kahootLatencyMs ?? 0)}` : 'unreachable'], ['Session', liveHealth.sessionActive ? `busy (${liveHealth.sessionState})` : 'free']].map(([k, v]) => (
+                        <div key={k} className="rounded-lg border border-line bg-void/60 px-2.5 py-2">
+                          <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted">{k}</dt>
+                          <dd className="mt-0.5 truncate font-mono text-xs text-ink">{v}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
+                </div>
+                <Notice
+                  tone="info"
+                  title="What happens on join"
+                  body="Your connector reserves a real seat with Kahoot, solves the session challenge, and logs in with your nickname. Questions arrive live; you read them on the host screen, the AI ranks the options, and answers are submitted through the real game channel. Correctness and score come back from Kahoot."
+                />
+                <Button type="submit" variant="primary" size="lg" loading={liveBusy} className="w-full sm:w-auto">
+                  <Radio size={17} /> Join live game
+                </Button>
+              </form>
+            </CardBody>
+          </Card>
+
+          <div className="flex flex-col gap-4 xl:col-span-2">
+            <Card>
+              <CardHeader title="Fair play" subtitle="One player, full transparency" />
+              <CardBody className="space-y-3 text-[13px] leading-relaxed text-muted">
+                {[
+                  'The connector joins as ONE player with your nickname — no bot swarms, no lobby flooding.',
+                  'Only join games you are invited to. Respect the host and the other players.',
+                  'If the host enables 2-step join, you must complete the pattern from the host screen.',
+                  'Every status reflects the real session — failures are reported, never hidden.',
+                ].map((t, i) => (
+                  <p key={i} className="flex gap-2.5"><ChevronRight size={15} className="mt-0.5 shrink-0 text-accent2" />{t}</p>
+                ))}
+              </CardBody>
+            </Card>
+          </div>
+        </div>
+        )}
       </div>
     );
   }
