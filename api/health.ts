@@ -1,18 +1,18 @@
-/* GET /api/health — real liveness + capability report. No secrets are exposed. */
-import { json, type HealthPayload } from './shared';
-
+/* GET /api/health — real liveness + capability report. No secrets are exposed.
+   Self-contained (no cross-file imports): serverless-safe by construction. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default async function handler(_req: any, res: any): Promise<void> {
+module.exports = async function handler(_req: any, res: any): Promise<void> {
   const aiConfigured = Boolean(process.env.AI_API_KEY && process.env.AI_API_BASE_URL);
-  const liveConfigured = Boolean(process.env.LIVE_GAME_API_URL);
-  const body: HealthPayload = {
+  const body = {
     status: 'ok',
     service: 'kahoot-boss-api',
     version: process.env.npm_package_version ?? '1.0.0',
     time: new Date().toISOString(),
     mode: aiConfigured ? 'full' : 'limited',
     aiConfigured,
-    liveConfigured,
+    liveConfigured: false,
   };
-  json(res, 200, body);
-}
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify(body));
+};

@@ -2,7 +2,7 @@
    Talks to /api/* (Vercel serverless in production). Every call has a timeout
    and honest error reporting — failures are surfaced, never faked. */
 
-import type { DiagnosticsPayload, HealthPayload, SolveApiPayload } from '../../api/shared';
+import type { DiagnosticsPayload, HealthPayload, SolveApiPayload } from '../lib/apiContracts';
 
 function apiBase(): string {
   const v = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
