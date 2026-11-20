@@ -4,7 +4,11 @@
    POST — validates { pin, nickname } for the simulation environment and
           returns a short-lived local validation token. This is NOT a
           Kahoot connection and is labeled as such everywhere. */
-import { randomBytes } from 'crypto';
+// NOTE: zero `import` statements on purpose — the serverless TS pipeline
+// preserves ESM syntax and the launcher loads the output as CJS, so any
+// import (even a builtin) crashes at load. require() passes through intact.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { randomBytes } = require('crypto') as typeof import('crypto');
 
 function send(res: { setHeader(k: string, v: string): void; statusCode: number; end(b: string): void }, status: number, body: unknown): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');

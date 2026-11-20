@@ -16,13 +16,13 @@ interface ChatMessage {
   content: string;
 }
 
-function send(res: { setHeader(k: string, v: string): void; statusCode: number; end(b: string): void }, status: number, body: unknown): void {
+function respond(res: { setHeader(k: string, v: string): void; statusCode: number; end(b: string): void }, status: number, body: unknown): void {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.statusCode = status;
   res.end(JSON.stringify(body));
 }
 
-async function readJsonBody<T>(req: { on(e: string, cb: (...a: never[]) => void): void }): Promise<T> {
+async function readPostedBody<T>(req: { on(e: string, cb: (...a: never[]) => void): void }): Promise<T> {
   const chunks: Buffer[] = [];
   await new Promise<void>((resolve, reject) => {
     req.on('data', ((c: Buffer) => chunks.push(Buffer.from(c))) as never);
@@ -51,29 +51,29 @@ function extractJson(text: string): { bestIndex: number; confidence: number; exp
 module.exports = async function handler(req: any, res: any): Promise<void> {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
-    send(res, 405, { status: 'error', error: 'Method not allowed.', code: 'METHOD_NOT_ALLOWED' });
+    respond(res, 405, { status: 'error', error: 'Method not allowed.', code: 'METHOD_NOT_ALLOWED' });
     return;
   }
 
   let body: SolveBody;
   try {
-    body = await readJsonBody<SolveBody>(req);
+    body = await readPostedBody<SolveBody>(req);
   } catch {
-    send(res, 400, { status: 'error', error: 'Invalid JSON body.', code: 'BAD_JSON' });
+    respond(res, 400, { status: 'error', error: 'Invalid JSON body.', code: 'BAD_JSON' });
     return;
   }
 
   if (typeof body.question !== 'string' || body.question.trim().length < 4 || body.question.trim().length > 500) {
-    send(res, 422, { status: 'error', error: 'Question must be 4–500 characters.', code: 'INVALID_QUESTION' });
+    respond(res, 422, { status: 'error', error: 'Question must be 4–500 characters.', code: 'INVALID_QUESTION' });
     return;
   }
   if (!Array.isArray(body.options) || body.options.length < 2 || body.options.length > 4) {
-    send(res, 422, { status: 'error', error: 'Provide 2–4 answer options.', code: 'INVALID_OPTIONS' });
+    respond(res, 422, { status: 'error', error: 'Provide 2–4 answer options.', code: 'INVALID_OPTIONS' });
     return;
   }
   const options = (body.options as unknown[]).map((o) => String(o).slice(0, 120));
   if (options.some((o) => o.trim().length === 0)) {
-    send(res, 422, { status: 'error', error: 'Answer options must not be empty.', code: 'INVALID_OPTIONS' });
+    respond(res, 422, { status: 'error', error: 'Answer options must not be empty.', code: 'INVALID_OPTIONS' });
     return;
   }
 
@@ -87,7 +87,7 @@ module.exports = async function handler(req: any, res: any): Promise<void> {
   const model = (typeof body.model === 'string' && body.model.trim()) || process.env.AI_MODEL || 'gpt-4o-mini';
 
   if (!baseUrl || !apiKey) {
-    send(res, 501, {
+    respond(res, 501, {
       status: 'error',
       error: 'Cloud AI is not configured.',
       code: 'AI_NOT_CONFIGURED',
@@ -125,7 +125,7 @@ module.exports = async function handler(req: any, res: any): Promise<void> {
     }
     if (!upstream.ok) {
       const text = await upstream.text().catch(() => '');
-      send(res, 502, {
+      respond(res, 502, {
         status: 'error',
         error: `AI provider returned HTTP ${upstream.status}.`,
         code: 'PROVIDER_ERROR',
@@ -137,7 +137,7 @@ module.exports = async function handler(req: any, res: any): Promise<void> {
     const content = data.choices?.[0]?.message?.content ?? '';
     const parsed = extractJson(content);
     if (!parsed || parsed.bestIndex < 0 || parsed.bestIndex >= options.length) {
-      send(res, 502, {
+      respond(res, 502, {
         status: 'error',
         error: 'AI provider returned an unparseable answer.',
         code: 'PROVIDER_BAD_RESPONSE',
@@ -145,7 +145,7 @@ module.exports = async function handler(req: any, res: any): Promise<void> {
       });
       return;
     }
-    send(res, 200, {
+    respond(res, 200, {
       status: 'ok',
       bestIndex: parsed.bestIndex,
       confidence: Math.min(1, Math.max(0, parsed.confidence)),
@@ -155,7 +155,7 @@ module.exports = async function handler(req: any, res: any): Promise<void> {
       latencyMs: Date.now() - started,
     });
   } catch (e) {
-    send(res, 502, {
+    respond(res, 502, {
       status: 'error',
       error: e instanceof Error && e.name === 'AbortError' ? 'AI provider request timed out.' : 'Could not reach the AI provider.',
       code: 'PROVIDER_UNREACHABLE',
