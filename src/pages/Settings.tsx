@@ -1,10 +1,11 @@
 /* KAHOOT BOSS — Settings (all persistent, all functional) */
 import React from 'react';
-import { Bot, CheckCircle2, Database, Eye, EyeOff, FlaskConical, Radio, User, XCircle, Zap } from 'lucide-react';
+import { Bot, Brain, CheckCircle2, Database, Download, Eye, EyeOff, FlaskConical, Radio, User, XCircle, Zap } from 'lucide-react';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Notice, PageHeader, Select, Slider, StatusDot, Toggle } from '../components/ui';
 import { useStore, DEFAULT_SETTINGS } from '../store/useStore';
 import { solveViaApi } from '../engine/apiClient';
 import { liveApi, resolveLiveBase, type LiveHealth } from '../engine/liveClient';
+import { NEURAL_MODEL_ID, NEURAL_MODEL_PARAMS, NEURAL_MODEL_SIZE, ensureNeuralModel } from '../engine/neuralSolver';
 import { validateApiUrl, validateDisplayName } from '../lib/validation';
 import { downloadFile, formatMs } from '../lib/utils';
 
@@ -22,6 +23,7 @@ export default function Settings() {
   const clearActivity = useStore((s) => s.clearActivity);
   const pushToast = useStore((s) => s.pushToast);
   const pushActivity = useStore((s) => s.pushActivity);
+  const neural = useStore((s) => s.neural);
 
   const [name, setName] = React.useState(profile.displayName);
   const [role, setRole] = React.useState(profile.role);
@@ -126,23 +128,73 @@ export default function Settings() {
         </Card>
 
         {/* Solver engine */}
-        <Card glow={settings.solverMode === 'api'}>
+        <Card glow={settings.solverMode !== 'local'}>
           <CardHeader
             title="Solver engine"
             subtitle="Choose the brain behind Solve and auto-answer."
-            right={settings.solverMode === 'api' ? <Badge tone="cyan"><Bot size={12} /> Cloud</Badge> : <Badge tone="accent"><FlaskConical size={12} /> Local</Badge>}
+            right={
+              settings.solverMode === 'api' ? <Badge tone="cyan"><Bot size={12} /> Cloud</Badge>
+              : settings.solverMode === 'neural' ? <Badge tone="good"><Brain size={12} /> On-device AI</Badge>
+              : <Badge tone="accent"><FlaskConical size={12} /> Local</Badge>
+            }
           />
           <CardBody className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <button onClick={() => updateSettings({ solverMode: 'local' })} className={`rounded-xl border px-3.5 py-3 text-left transition ${settings.solverMode === 'local' ? 'border-accent/60 bg-accent/10' : 'border-line bg-void/50 hover:border-white/20'}`}>
                 <span className="block text-sm font-semibold text-ink">Local (offline)</span>
-                <span className="mt-0.5 block text-xs text-muted">Math + knowledge + fallback. Free, instant, private.</span>
+                <span className="mt-0.5 block text-xs text-muted">Math + knowledge. Free, instant, private.</span>
+              </button>
+              <button onClick={() => updateSettings({ solverMode: 'neural' })} className={`rounded-xl border px-3.5 py-3 text-left transition ${settings.solverMode === 'neural' ? 'border-good/60 bg-good/10' : 'border-line bg-void/50 hover:border-white/20'}`}>
+                <span className="block text-sm font-semibold text-ink">On-device AI</span>
+                <span className="mt-0.5 block text-xs text-muted">Real neural model, no API key. One-time download.</span>
               </button>
               <button onClick={() => updateSettings({ solverMode: 'api' })} className={`rounded-xl border px-3.5 py-3 text-left transition ${settings.solverMode === 'api' ? 'border-accent2/60 bg-accent2/10' : 'border-line bg-void/50 hover:border-white/20'}`}>
                 <span className="block text-sm font-semibold text-ink">Cloud AI (BYOK)</span>
                 <span className="mt-0.5 block text-xs text-muted">Your key, OpenAI-compatible endpoint.</span>
               </button>
             </div>
+
+            {settings.solverMode === 'neural' && (
+              <div className="space-y-3 rounded-xl border border-good/25 bg-good/5 p-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+                    <StatusDot tone={neural.status === 'ready' ? 'good' : neural.status === 'error' ? 'bad' : neural.status === 'loading' ? 'warn' : 'idle'} />
+                    {neural.status === 'ready' ? 'On-device AI ready' : neural.status === 'loading' ? `Downloading model… ${neural.progress}%` : neural.status === 'error' ? 'Model failed to load' : 'Model not downloaded yet'}
+                  </p>
+                  {neural.status !== 'loading' && (
+                    <Button size="sm" variant={neural.status === 'ready' ? 'ghost' : 'secondary'} onClick={() => { void ensureNeuralModel().then(() => pushActivity('settings', 'On-device AI model loaded')).catch(() => { /* error shown inline */ }); }}>
+                      <Download size={14} /> {neural.status === 'ready' ? 'Reload' : neural.status === 'error' ? 'Retry download' : 'Download & load'}
+                    </Button>
+                  )}
+                </div>
+                {neural.status === 'loading' && (
+                  <div>
+                    <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                      <div className="h-full rounded-full bg-good transition-all" style={{ width: `${neural.progress}%` }} />
+                    </div>
+                    {neural.file && <p className="mt-1.5 truncate font-mono text-[11px] text-muted">{neural.file}</p>}
+                  </div>
+                )}
+                {neural.status === 'error' && neural.error && (
+                  <p className="text-[13px] leading-relaxed text-red-200">{neural.error}</p>
+                )}
+                {neural.status === 'ready' && (
+                  <p className="text-[13px] leading-relaxed text-emerald-200/90">Inference runs 100% in this browser — questions never leave your device, and no API key is needed.</p>
+                )}
+                <dl className="grid grid-cols-3 gap-2">
+                  {[
+                    ['Model', NEURAL_MODEL_ID.replace('Xenova/', '')],
+                    ['Size', `${NEURAL_MODEL_SIZE} · cached`],
+                    ['Engine', NEURAL_MODEL_PARAMS],
+                  ].map(([k, v]) => (
+                    <div key={k} className="rounded-lg border border-line bg-void/60 px-2.5 py-2">
+                      <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted">{k}</dt>
+                      <dd className="mt-0.5 truncate font-mono text-xs text-ink" title={v}>{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
 
             <div className={settings.solverMode === 'api' ? '' : 'pointer-events-none opacity-40'}>
               <div className="space-y-4">

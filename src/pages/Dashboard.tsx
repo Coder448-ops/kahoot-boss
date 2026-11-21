@@ -17,7 +17,7 @@ import {
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Notice, PageHeader, ProgressBar, StatCard, StatusDot } from '../components/ui';
 import { useStore, globalStats, sessionStats } from '../store/useStore';
 import { useConnect } from '../hooks/useConnect';
-import { solverSelfTest } from '../engine/solver';
+import { solverModeLabel, solverSelfTest } from '../engine/solver';
 import { formatDateTime, formatDuration, formatMs, percent, timeAgo } from '../lib/utils';
 
 export default function Dashboard() {
@@ -155,7 +155,7 @@ export default function Dashboard() {
         {/* Engine + session */}
         <div className="flex flex-col gap-4 xl:col-span-2">
           <Card>
-            <CardHeader title="AI engine" subtitle={`Mode: ${settings.solverMode === 'local' ? 'Local (offline)' : 'Cloud API'}`} right={engine ? (engine.passed ? <Badge tone="good">Operational</Badge> : <Badge tone="bad">Self-test failed</Badge>) : <Badge tone="muted">Checking…</Badge>} />
+            <CardHeader title="AI engine" subtitle={`Mode: ${solverModeLabel(settings.solverMode)}`} right={engine ? (engine.passed ? <Badge tone="good">Operational</Badge> : <Badge tone="bad">Self-test failed</Badge>) : <Badge tone="muted">Checking…</Badge>} />
             <CardBody>
               <div className="flex items-center gap-3">
                 <StatusDot tone={engine ? (engine.passed ? 'good' : 'bad') : 'idle'} pulse />

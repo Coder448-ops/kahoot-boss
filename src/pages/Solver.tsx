@@ -33,9 +33,10 @@ import {
   Textarea,
 } from '../components/ui';
 import { useStore } from '../store/useStore';
-import { methodLabel, solveLocal } from '../engine/solver';
+import { methodLabel, solveLocal, solverModeLabel } from '../engine/solver';
 import { detectLanguage } from '../engine/language';
 import { solveViaApi } from '../engine/apiClient';
+import { NeuralError, solveNeural } from '../engine/neuralSolver';
 import { validateOptions, validateQuestionText } from '../lib/validation';
 import type { SolveResult } from '../lib/types';
 import { formatMs, percent, timeAgo, uid } from '../lib/utils';
@@ -57,6 +58,7 @@ export default function Solver() {
   const setVerdict = useStore((s) => s.setVerdict);
   const clearSolves = useStore((s) => s.clearSolves);
   const pushToast = useStore((s) => s.pushToast);
+  const neural = useStore((s) => s.neural);
 
   const [question, setQuestion] = React.useState('');
   const [optionCount, setOptionCount] = React.useState(4);
@@ -138,7 +140,14 @@ export default function Solver() {
     setResult(null);
     try {
       const useApi = settings.solverMode === 'api' && !forceLocal;
-      if (useApi) {
+      const useNeural = settings.solverMode === 'neural' && !forceLocal;
+      if (useNeural) {
+        const r = await solveNeural(effectiveQuestion, filled);
+        setResult(r);
+        setResultFor({ q: effectiveQuestion, o: filled });
+        const rec = recordSolve(effectiveQuestion, filled, image?.name ?? null, r);
+        setSolvedRecordId(rec.id);
+      } else if (useApi) {
         const started = performance.now();
         const { data } = await solveViaApi({
           question: effectiveQuestion,
@@ -177,6 +186,8 @@ export default function Solver() {
       const err = e as Error & { code?: string };
       if (err.code === 'AI_NOT_CONFIGURED') {
         setError('CLOUD_NOT_CONFIGURED');
+      } else if (e instanceof NeuralError) {
+        setError(e.message);
       } else {
         setError(err.message || 'Solving failed.');
       }
@@ -198,10 +209,10 @@ export default function Solver() {
     <div>
       <PageHeader
         title="AI Solver"
-        subtitle="Recognize a question, analyze its options, and get a ranked answer with confidence and reasoning. The offline engine is fully functional; cloud mode needs an API key."
+        subtitle="Recognize a question, analyze its options, and get a ranked answer with confidence and reasoning. Local and on-device AI modes need no API key; cloud mode does."
         right={
-          <Badge tone={settings.solverMode === 'api' ? 'cyan' : 'accent'}>
-            <Bot size={13} /> {settings.solverMode === 'api' ? 'Cloud AI mode' : 'Local engine mode'}
+          <Badge tone={settings.solverMode === 'api' ? 'cyan' : settings.solverMode === 'neural' ? 'good' : 'accent'}>
+            <Bot size={13} /> {solverModeLabel(settings.solverMode)}{settings.solverMode === 'local' ? ' mode' : settings.solverMode === 'api' ? ' mode' : ' mode'}
           </Badge>
         }
       />
@@ -279,9 +290,24 @@ export default function Solver() {
               )}
             </div>
 
+            {settings.solverMode === 'neural' && neural.status === 'loading' && (
+              <div className="rounded-xl border border-good/25 bg-good/5 px-3.5 py-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-emerald-200">Downloading on-device AI model… {neural.progress}%</span>
+                  <span className="font-mono text-muted">one-time · cached after</span>
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full rounded-full bg-good transition-all" style={{ width: `${neural.progress}%` }} />
+                </div>
+                {neural.file && <p className="mt-1.5 truncate font-mono text-[11px] text-muted">{neural.file}</p>}
+              </div>
+            )}
+            {settings.solverMode === 'neural' && neural.status === 'ready' && (
+              <p className="flex items-center gap-2 text-xs text-muted"><StatusDot tone="good" /> On-device AI ready — inference runs 100% in this browser, no data leaves your device.</p>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="primary" loading={solving} onClick={() => handleSolve(false)}>
-                <Sparkles size={16} /> {settings.solverMode === 'api' ? 'Solve with Cloud AI' : 'Solve locally'}
+                <Sparkles size={16} /> {settings.solverMode === 'api' ? 'Solve with Cloud AI' : settings.solverMode === 'neural' ? 'Solve with on-device AI' : 'Solve locally'}
               </Button>
               <div className="flex items-center gap-1.5 text-xs text-muted">
                 <FlaskConical size={14} /> Try:

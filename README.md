@@ -2,6 +2,8 @@
 
 A premium AI-powered quiz automation workbench: an offline-first solving engine, an Automation Center for simulated **and real live games**, honest connection management, session history, analytics, and persistent settings.
 
+Three solver brains: **Local** (instant math + knowledge, always offline), **On-device AI** (a real neural model running 100% in the browser — no API key; one-time ~6 MB download, cached afterwards), and **Cloud AI** (BYOK, OpenAI-compatible).
+
 > **Real connections, honestly reported.** Live mode performs a genuine join against Kahoot's session infrastructure using the same flow as the official web client (reserve/session → challenge → CometD → login). There is no official public gameplay API, so the connector speaks the documented client protocol server-side (browsers can't hold it: no CORS + a stateful socket). Every status, latency, and diagnostic is measured live — failures are reported with meaningful errors, never masked as success.
 
 ## Quick start

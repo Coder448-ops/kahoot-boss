@@ -44,6 +44,7 @@ import { useStore, sessionStats } from '../store/useStore';
 import { liveApi, resolveLiveBase, LiveBackendError, type LiveEvent, type LiveSnapshot } from '../engine/liveClient';
 import { methodLabel, solveLocal } from '../engine/solver';
 import { solveViaApi } from '../engine/apiClient';
+import { trySolveNeural } from '../engine/neuralSolver';
 import { validateOptions, validateQuestionText } from '../lib/validation';
 import type { Question, SolveResult, SolverMethod } from '../lib/types';
 import { formatDateTime, formatMs, percent, timeAgo, uid } from '../lib/utils';
@@ -438,6 +439,16 @@ export default function LiveRunner() {
           latencyMs: performance.now() - started,
           viaApi: true,
         };
+      } else if (settings.solverMode === 'neural') {
+        const nr = await trySolveNeural(qText.trim(), filled.filter(Boolean));
+        if (nr) {
+          r = nr;
+        } else {
+          // Model still loading — local engine now, AI takes over once ready.
+          await new Promise((rr) => setTimeout(rr, 60));
+          r = solveLocal({ question: qText.trim(), options: filled.filter(Boolean) });
+          r.reasoning = [...r.reasoning, 'Note: on-device AI was still loading, so the local engine answered this one.'];
+        }
       } else {
         await new Promise((rr) => setTimeout(rr, 60));
         r = solveLocal({ question: qText.trim(), options: filled.filter(Boolean) });

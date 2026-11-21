@@ -1,6 +1,6 @@
 /* KAHOOT BOSS — shared domain types */
 
-export type SolverMethod = 'math' | 'knowledge' | 'heuristic' | 'api' | 'unresolved';
+export type SolverMethod = 'math' | 'knowledge' | 'heuristic' | 'api' | 'neural' | 'unresolved';
 
 export interface SolveResult {
   bestIndex: number;
@@ -103,7 +103,7 @@ export interface ConnectionState {
 }
 
 export interface Settings {
-  solverMode: 'local' | 'api';
+  solverMode: 'local' | 'api' | 'neural';
   apiBaseUrl: string;
   apiKey: string;
   apiModel: string;

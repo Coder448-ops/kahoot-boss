@@ -46,6 +46,7 @@ import { liveApi, resolveLiveBase, type LiveHealth } from '../engine/liveClient'
 import { buildSessionQuestions, getQuestionBankSize } from '../engine/simulation';
 import { methodLabel, solveLocal } from '../engine/solver';
 import { solveViaApi, checkHealth } from '../engine/apiClient';
+import { trySolveNeural } from '../engine/neuralSolver';
 import { solverSelfTest } from '../engine/solver';
 import { validateNickname, validatePin } from '../lib/validation';
 import type { Session, SolveResult } from '../lib/types';
@@ -305,6 +306,19 @@ export default function Automation() {
             const msg = e instanceof Error ? e.message : 'Cloud solver failed';
             setSessionError(active.id, `Q${qIndex + 1}: cloud solver failed (${msg}) — fell back to local engine.`);
             appendSessionEvent(active.id, 'error', `Q${qIndex + 1}: cloud solver failed, used local engine instead.`);
+            const r = solveLocal({ question: question.text, options: question.options });
+            setInsight(r);
+            pendingInsightRef.current = r;
+          }
+        } else if (st.solverMode === 'neural') {
+          // On-device AI when loaded; otherwise local engine (model keeps loading in background).
+          const nr = await trySolveNeural(question.text, question.options);
+          if (cancelled) return;
+          if (nr) {
+            setInsight(nr);
+            pendingInsightRef.current = nr;
+          } else {
+            appendSessionEvent(active.id, 'system', `Q${qIndex + 1}: on-device AI still loading — used local engine for this question.`);
             const r = solveLocal({ question: question.text, options: question.options });
             setInsight(r);
             pendingInsightRef.current = r;
@@ -769,7 +783,7 @@ export default function Automation() {
               {insightLoading && !insight && (
                 <div className="flex items-center gap-2 text-sm text-muted">
                   <Bot size={16} className="animate-pulse-soft text-accent" />
-                  {settings.solverMode === 'api' ? 'Consulting cloud AI…' : 'Analyzing with local engine…'}
+                  {settings.solverMode === 'api' ? 'Consulting cloud AI…' : settings.solverMode === 'neural' ? 'Analyzing with on-device AI…' : 'Analyzing with local engine…'}
                 </div>
               )}
               {insight && (

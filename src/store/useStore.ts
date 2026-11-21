@@ -60,6 +60,7 @@ interface Store {
   connection: ConnectionState;
   activeSessionId: string | null;
   toasts: Toast[];
+  neural: { status: 'idle' | 'loading' | 'ready' | 'error'; progress: number; file: string | null; error: string | null };
 
   setProfile: (p: Partial<Profile>) => void;
   updateSettings: (s: Partial<Settings>) => void;
@@ -100,6 +101,8 @@ interface Store {
 
   pushToast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: string) => void;
+
+  setNeural: (patch: Partial<Store['neural']>) => void;
 }
 
 function cap<T>(arr: T[], max: number): T[] {
@@ -117,6 +120,7 @@ export const useStore = create<Store>()(
       connection: DISCONNECTED,
       activeSessionId: null,
       toasts: [],
+      neural: { status: 'idle', progress: 0, file: null, error: null },
 
       setProfile: (p) => set((s) => ({ profile: { ...s.profile, ...p } })),
       updateSettings: (s2) => set((s) => ({ settings: { ...s.settings, ...s2 } })),
@@ -285,6 +289,8 @@ export const useStore = create<Store>()(
         setTimeout(() => get().dismissToast(id), 4200);
       },
       dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+      setNeural: (patch) => set((s) => ({ neural: { ...s.neural, ...patch } })),
     }),
     {
       name: 'kahoot-boss-store-v1',

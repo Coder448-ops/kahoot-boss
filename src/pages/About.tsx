@@ -49,7 +49,7 @@ export default function About() {
           <CardHeader title="What it does" subtitle="Real capabilities, all functional in this build." />
           <CardBody className="space-y-3">
             {[
-              ['AI solving engine', `${KNOWLEDGE_BASE.length}+ curated facts, safe math evaluator, statistical fallback — every answer carries a method label and confidence score.`],
+              ['AI solving engine', `${KNOWLEDGE_BASE.length}+ curated facts, safe math evaluator, statistical fallback — plus an on-device neural model (no API key) and optional cloud AI. Every answer carries a method label and confidence score.`],
               ['Real live connection', 'Genuine joins via reserve/session → challenge → CometD → login, 2-step verification support, live questions, real submissions and Kahoot-reported scores.'],
               ['Automation center', `Real countdowns, auto/manual answering, pause-resume with frozen timers, event log, error detection and a ${getQuestionBankSize()}-question practice bank.`],
               ['Analytics', 'Accuracy, latency, method distribution and category performance — computed live from your data, never seeded.'],

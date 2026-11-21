@@ -186,12 +186,21 @@ export function solverSelfTest(): { passed: boolean; detail: string; latencyMs: 
   }
 }
 
+export function solverModeLabel(mode: 'local' | 'api' | 'neural'): string {
+  switch (mode) {
+    case 'local': return 'Local (offline)';
+    case 'api': return 'Cloud API';
+    case 'neural': return 'On-device AI';
+  }
+}
+
 export function methodLabel(method: SolverMethod | 'manual'): string {
   switch (method) {
     case 'math': return 'Math solver';
     case 'knowledge': return 'Knowledge base';
     case 'heuristic': return 'Statistical fallback';
     case 'api': return 'Cloud AI';
+    case 'neural': return 'On-device AI';
     case 'manual': return 'Manual pick';
     default: return 'Unresolved';
   }
