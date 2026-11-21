@@ -32,7 +32,7 @@ export default function About() {
             <p className="mt-1 font-display text-sm font-medium uppercase tracking-[0.2em] text-muted">Intelligence · Automation · Control</p>
             <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted">
               KAHOOT BOSS is a web-based automation platform for quiz play and testing. It combines an offline-first
-              AI solving engine, a real live-game connector that joins Kahoot sessions for genuine play, and a
+              AI solving engine, a real live-game engine that joins Kahoot sessions for genuine play, and a
               simulation environment for safe practice — with honest connection management throughout: every status
               is measured, and failures are reported, never faked.
             </p>
@@ -73,8 +73,8 @@ export default function About() {
                 body="Live mode performs a genuine join and only reports “connected” after Kahoot confirms it. Invalid PINs, rejected nicknames, kicks and drops are reported with meaningful errors — a failure is never displayed as success."
               />
               <p className="text-[13px] leading-relaxed text-muted">
-                There is no official public gameplay API, so the connector speaks the same documented session protocol
-                as the official web client — as a single player, one nickname per connector, with join throttling and
+                There is no official public gameplay API, so the live engine speaks the same documented session protocol
+                as the official web client — as a single player, one nickname per session, with join throttling and
                 no multi-bot features. Only join games you are invited to. The simulation environment exists so teams can
                 practice, benchmark solvers and test automation safely without touching any third-party game service.
                 Kahoot! is a trademark of Kahoot! ASA; this is an independent tool and is not affiliated with or
@@ -90,8 +90,8 @@ export default function About() {
                 {[
                   [<Bot key="i" size={17} className="text-accent" />, 'Engine layer', 'solver · math parser · language detection · knowledge base'],
                   [<FlaskConical key="i" size={17} className="text-accent2" />, 'Simulation layer', 'practice bank · session runner · real timers'],
-                  [<Plug2 key="i" size={17} className="text-accent2" />, 'Connector layer', 'challenge solver · Bayeux client · live game client · REST+SSE'],
-                  [<Server key="i" size={17} className="text-good" />, 'API layer', '/api/health · /api/solve · /api/session (serverless-ready)'],
+                  [<Plug2 key="i" size={17} className="text-accent2" />, 'Live layer', 'challenge solver · Bayeux client · live game client · direct + connector transports'],
+                  [<Server key="i" size={17} className="text-good" />, 'API layer', '/api/health · /api/solve · /api/session · /api/kahoot-reserve (serverless)'],
                   [<Database key="i" size={17} className="text-warn" />, 'State layer', 'typed store · localStorage persistence · import/export'],
                   [<Gauge key="i" size={17} className="text-muted" />, 'UI layer', 'React + TypeScript · Tailwind · responsive shell'],
                 ].map(([icon, t, b], i) => (

@@ -42,7 +42,8 @@ import {
 import { useStore, sessionStats } from '../store/useStore';
 import { useConnect } from '../hooks/useConnect';
 import LiveRunner from '../components/LiveRunner';
-import { liveApi, resolveLiveBase, type LiveHealth } from '../engine/liveClient';
+import { type LiveHealth } from '../engine/liveClient';
+import { resolveLiveRuntime } from '../engine/directLive';
 import { buildSessionQuestions, getQuestionBankSize } from '../engine/simulation';
 import { methodLabel, solveLocal } from '../engine/solver';
 import { solveViaApi, checkHealth } from '../engine/apiClient';
@@ -361,15 +362,16 @@ export default function Automation() {
   }, [active?.id, qIndex, active?.status]);
 
   /* ---------- actions ---------- */
+  const liveRuntime = React.useMemo(() => resolveLiveRuntime(settings), [settings]);
   const checkConnector = async (): Promise<void> => {
     setLiveHealthLoading(true);
     setLiveHealthError(null);
     setLiveHealth(null);
     try {
-      const { data } = await liveApi.health(resolveLiveBase(settings.liveBackendUrl), 9000);
+      const { data } = await liveRuntime.api.health(liveRuntime.base, liveRuntime.mode === 'direct' ? 15000 : 9000);
       setLiveHealth(data);
     } catch (e) {
-      setLiveHealthError(e instanceof Error ? e.message : 'Connector check failed.');
+      setLiveHealthError(e instanceof Error ? e.message : 'Live backend check failed.');
     } finally {
       setLiveHealthLoading(false);
     }
@@ -469,7 +471,7 @@ export default function Automation() {
       <div>
         <PageHeader
           title="Automation Center"
-          subtitle="Automate the simulation test environment — or join and play a real live game through the connector."
+          subtitle="Automate the simulation test environment — or join and play a real live game."
         />
         {summary && sStats && (
           <Card className="mb-4" glow>
@@ -587,7 +589,7 @@ export default function Automation() {
           <Card className="xl:col-span-3" glow>
             <CardHeader
               title="Join a real live game"
-              subtitle="The connector performs a genuine join: reserve/session → challenge → CometD → login."
+              subtitle="A genuine join: reserve/session → challenge → CometD → login."
               right={
                 liveHealth ? (
                   <Badge tone={liveHealth.kahootReachable ? 'good' : 'warn'}>
@@ -609,9 +611,9 @@ export default function Automation() {
                 </div>
                 <div className="rounded-xl border border-line bg-void/40 p-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-[13px] font-medium text-ink/90">Connector: <span className="font-mono">{resolveLiveBase(settings.liveBackendUrl)}</span></p>
-                    <Button variant="secondary" size="sm" onClick={checkConnector} loading={liveHealthLoading}>Check connector</Button>
-                    <Button variant="ghost" size="sm" onClick={() => navigate('/settings')}>Change URL</Button>
+                    <p className="text-[13px] font-medium text-ink/90">Mode: <span className="font-mono">{liveRuntime.mode === 'direct' ? 'direct (in-browser)' : `connector (${liveRuntime.base})`}</span></p>
+                    <Button variant="secondary" size="sm" onClick={checkConnector} loading={liveHealthLoading}>Check live backend</Button>
+                    <Button variant="ghost" size="sm" onClick={() => navigate('/settings')}>Change mode</Button>
                   </div>
                   {liveHealthError && <p className="mt-2 text-[13px] text-bad">{liveHealthError}</p>}
                   {liveHealth && (
@@ -628,7 +630,7 @@ export default function Automation() {
                 <Notice
                   tone="info"
                   title="What happens on join"
-                  body="Your connector reserves a real seat with Kahoot, solves the session challenge, and logs in with your nickname. Questions arrive live; you read them on the host screen, the AI ranks the options, and answers are submitted through the real game channel. Correctness and score come back from Kahoot."
+                  body="KAHOOT BOSS reserves a real seat with Kahoot, solves the session challenge, and logs in with your nickname. Questions arrive live; you read them on the host screen, the AI ranks the options, and answers are submitted through the real game channel. Correctness and score come back from Kahoot."
                 />
                 <Button type="submit" variant="primary" size="lg" loading={liveBusy} className="w-full sm:w-auto">
                   <Radio size={17} /> Join live game
@@ -642,7 +644,7 @@ export default function Automation() {
               <CardHeader title="Fair play" subtitle="One player, full transparency" />
               <CardBody className="space-y-3 text-[13px] leading-relaxed text-muted">
                 {[
-                  'The connector joins as ONE player with your nickname — no bot swarms, no lobby flooding.',
+                  'The app joins as ONE player with your nickname — no bot swarms, no lobby flooding.',
                   'Only join games you are invited to. Respect the host and the other players.',
                   'If the host enables 2-step join, you must complete the pattern from the host screen.',
                   'Every status reflects the real session — failures are reported, never hidden.',

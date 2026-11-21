@@ -7,7 +7,8 @@
 
 import vm from 'vm';
 import { solveChallenge, parseChallenge, deriveCometToken, ChallengeError } from '../protocol';
-import { KahootLiveClient, LiveError, type LiveKahootEvent } from '../client';
+import { KahootLiveClient, LiveError, createDirectReserve, type LiveKahootEvent } from '../client';
+import { createNodeSocket } from '../nodeSocket';
 import { loadConfig } from '../../config';
 import { MockKahootServer, MOCK_PINS, MOCK_TWO_FACTOR_SEQUENCE, MOCK_CORRECT, documentedSampleChallenge } from './mock';
 
@@ -118,7 +119,7 @@ async function main(): Promise<void> {
   /* ---------- 4. full game: join → questions → answers → real feedback ---------- */
   console.log('— full game workflow (client level) —');
   {
-    const c = new KahootLiveClient(cfg);
+    const c = new KahootLiveClient(cfg, { createSocket: createNodeSocket, reserve: createDirectReserve(cfg) });
     const events: LiveKahootEvent[] = [];
     c.onEvent((e) => events.push(e));
 
@@ -157,7 +158,7 @@ async function main(): Promise<void> {
   /* ---------- 5. failure paths: never a fake success ---------- */
   console.log('— failure paths —');
   {
-    const c = new KahootLiveClient(cfg);
+    const c = new KahootLiveClient(cfg, { createSocket: createNodeSocket, reserve: createDirectReserve(cfg) });
     try {
       await c.join(MOCK_PINS.notFound, 'Tester');
       assert('unknown PIN rejected', false, 'join unexpectedly succeeded');
@@ -167,7 +168,7 @@ async function main(): Promise<void> {
     assert('failed join leaves client unusable-but-clean', c.getState() === 'failed');
   }
   {
-    const c = new KahootLiveClient(cfg);
+    const c = new KahootLiveClient(cfg, { createSocket: createNodeSocket, reserve: createDirectReserve(cfg) });
     try {
       await c.join(MOCK_PINS.badChallenge, 'Tester');
       assert('bad challenge rejected', false, 'join unexpectedly succeeded');
@@ -176,7 +177,7 @@ async function main(): Promise<void> {
     }
   }
   {
-    const c = new KahootLiveClient(cfg);
+    const c = new KahootLiveClient(cfg, { createSocket: createNodeSocket, reserve: createDirectReserve(cfg) });
     try {
       await c.join(MOCK_PINS.game, 'Taken');
       assert('rejected name rejected', false, 'join unexpectedly succeeded');
@@ -185,7 +186,7 @@ async function main(): Promise<void> {
     }
   }
   {
-    const c = new KahootLiveClient(cfg);
+    const c = new KahootLiveClient(cfg, { createSocket: createNodeSocket, reserve: createDirectReserve(cfg) });
     try {
       await c.join(MOCK_PINS.silentLogin, 'Tester');
       assert('silent server rejected', false, 'join unexpectedly succeeded');
@@ -194,7 +195,7 @@ async function main(): Promise<void> {
     }
   }
   {
-    const c = new KahootLiveClient(cfg);
+    const c = new KahootLiveClient(cfg, { createSocket: createNodeSocket, reserve: createDirectReserve(cfg) });
     try {
       c.answer(0);
       assert('answer with no session rejected', false);
@@ -206,7 +207,7 @@ async function main(): Promise<void> {
   /* ---------- 6. two-step verification ---------- */
   console.log('— 2-step verification —');
   {
-    const c = new KahootLiveClient(cfg);
+    const c = new KahootLiveClient(cfg, { createSocket: createNodeSocket, reserve: createDirectReserve(cfg) });
     const events: LiveKahootEvent[] = [];
     c.onEvent((e) => events.push(e));
     const r = await c.join(MOCK_PINS.twoFactor, 'Tester');
@@ -224,7 +225,7 @@ async function main(): Promise<void> {
   /* ---------- 7. kick handling ---------- */
   console.log('— kick handling —');
   {
-    const c = new KahootLiveClient(cfg);
+    const c = new KahootLiveClient(cfg, { createSocket: createNodeSocket, reserve: createDirectReserve(cfg) });
     const events: LiveKahootEvent[] = [];
     c.onEvent((e) => events.push(e));
     await c.join(MOCK_PINS.kick, 'Tester');

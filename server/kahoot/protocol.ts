@@ -108,18 +108,19 @@ export function deriveCometToken(sessionTokenB64: string, solution: string): str
   if (!solution) {
     throw new ProtocolError('Cannot derive comet token from an empty challenge solution.');
   }
-  let raw: Buffer;
+  // Isomorphic base64 decode (atob exists in browsers and Node 16+; no Buffer).
+  let bin: string;
   try {
-    raw = Buffer.from(sessionTokenB64.trim(), 'base64');
+    bin = atob(sessionTokenB64.trim());
   } catch {
     throw new ProtocolError('Session token is not valid base64.');
   }
-  if (raw.length === 0) throw new ProtocolError('Session token decoded to zero bytes.');
-  const out = Buffer.alloc(raw.length);
-  for (let i = 0; i < raw.length; i++) {
-    out[i] = raw[i] ^ (solution.charCodeAt(i % solution.length) & 0xff);
+  if (bin.length === 0) throw new ProtocolError('Session token decoded to zero bytes.');
+  let out = '';
+  for (let i = 0; i < bin.length; i++) {
+    out += String.fromCharCode(bin.charCodeAt(i) ^ (solution.charCodeAt(i % solution.length) & 0xff));
   }
-  return out.toString('binary');
+  return out;
 }
 
 /* ---------------- service message IDs (documented client event codes) ---------------- */

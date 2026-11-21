@@ -1,16 +1,17 @@
-/* KAHOOT BOSS — live connector backend.
-   Why a backend? Browsers cannot hold this connection: Kahoot's session
-   endpoints do not allow cross-origin calls from arbitrary pages, and the
-   game channel is a stateful CometD socket that must stay open for the whole
-   game. This small server performs the real handshake server-side and exposes
-   it to the UI over same-origin REST + SSE. Nothing here is simulated:
+/* KAHOOT BOSS — live connector backend (optional, advanced).
+   The same live engine also runs directly in the browser (see
+   src/engine/directLive.ts — the default). This small server runs that engine
+   server-side and exposes it to the UI over same-origin REST + SSE, for
+   operators who prefer a backend (e.g. local dev without the serverless
+   relay, or a controlled egress network). Nothing here is simulated:
    every status reflects the actual Kahoot session state. */
 
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { loadConfig, CONNECTOR_VERSION, PROTOCOL_VERSION } from './config';
-import { KahootLiveClient, LiveError, probeKahoot, type LiveKahootEvent } from './kahoot/client';
+import { KahootLiveClient, LiveError, createDirectReserve, probeKahoot, type LiveKahootEvent } from './kahoot/client';
+import { createNodeSocket } from './kahoot/nodeSocket';
 import { validateLiveNickname, validateLivePin, validateTwoFactorSequence } from './validate';
 
 const cfg = loadConfig();
@@ -22,7 +23,7 @@ const origins = cfg.allowedOrigins.trim() === '*' ? '*' : cfg.allowedOrigins.spl
 app.use(cors({ origin: origins === '*' ? '*' : origins }));
 
 // Single active live session per connector (one player — no bot swarms, by design).
-const client = new KahootLiveClient(cfg);
+const client = new KahootLiveClient(cfg, { createSocket: createNodeSocket, reserve: createDirectReserve(cfg) });
 
 // ---- tiny in-memory join throttle (per IP, 10 joins / minute) ----
 const joinHits = new Map<string, number[]>();

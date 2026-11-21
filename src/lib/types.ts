@@ -112,6 +112,7 @@ export interface Settings {
   confidenceThreshold: number;
   defaultQuestionCount: number;
   defaultTimeLimitSec: number;
+  liveMode: 'direct' | 'connector';
   liveBackendUrl: string;
   persistHistory: boolean;
   soundEnabled: boolean;

@@ -144,7 +144,7 @@ export default function Dashboard() {
                 <Notice
                   tone="info"
                   title="Live mode joins real games"
-                  body="Live mode performs a genuine join through the connector backend (reserve → challenge → CometD → login). The connector must be running (`npm run server`) and able to reach Kahoot — any failure is reported honestly, never faked."
+                  body="Live mode performs a genuine join (reserve → challenge → CometD → login) — directly from this browser by default, no backend to run. Any failure is reported honestly, never faked."
                   action={<Button size="sm" variant="secondary" onClick={() => navigate('/settings')}>Open configuration <ArrowRight size={14} /></Button>}
                 />
               </div>

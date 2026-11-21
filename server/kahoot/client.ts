@@ -4,8 +4,7 @@
    Single-player only: one nickname per connector instance. No flooding,
    no multi-bot features — by design. */
 
-import { EventEmitter } from 'events';
-import { BayeuxClient, type BayeuxMessage } from './bayeux';
+import { BayeuxClient, type BayeuxMessage, type WsFactory } from './bayeux';
 import {
   EVENT_IDS,
   asBool,
@@ -81,14 +80,34 @@ export interface LiveSnapshot {
 interface PendingTwoFactor {
   resolve: (ok: boolean) => void;
   reject: (err: Error) => void;
-  timer: NodeJS.Timeout;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** Reserve result: everything join() needs from the reserve step, however it was fetched. */
+export interface ReserveData {
+  challenge: string;
+  sessionToken: string;
+  twoFactorAuth: boolean;
+  namerator: boolean;
+}
+
+/** Reserve fetcher — direct HTTP on the connector, relay API in browsers, mock in tests. */
+export type ReserveFn = (pin: string) => Promise<ReserveData>;
+
+export interface LiveClientDeps {
+  createSocket: WsFactory;
+  reserve: ReserveFn;
 }
 
 const debug = (...args: unknown[]): void => {
-  if (process.env.KB_DEBUG === '1') console.log('[live:debug]', ...args);
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+  if (proc?.env?.KB_DEBUG === '1') console.log('[live:debug]', ...args);
 };
 
-export class KahootLiveClient extends EventEmitter {
+export class KahootLiveClient {
+  private readonly createSocket: WsFactory;
+  private readonly reserveFn: ReserveFn;
+  private readonly eventHandlers = new Set<(e: LiveKahootEvent) => void>();
   private bayeux: BayeuxClient | null = null;
   private state: LiveState = 'idle';
   private pin: string | null = null;
@@ -104,8 +123,12 @@ export class KahootLiveClient extends EventEmitter {
   private pendingTwoFactor: PendingTwoFactor | null = null;
   private offs: Array<() => void> = [];
 
-  constructor(private readonly cfg: ConnectorConfig) {
-    super();
+  constructor(
+    private readonly cfg: ConnectorConfig,
+    deps: LiveClientDeps,
+  ) {
+    this.createSocket = deps.createSocket;
+    this.reserveFn = deps.reserve;
   }
 
   getState(): LiveState {
@@ -129,16 +152,18 @@ export class KahootLiveClient extends EventEmitter {
 
   private setState(state: LiveState): void {
     this.state = state;
-    this.emit('event', { type: 'state', state } satisfies LiveKahootEvent);
+    this.emitEvent({ type: 'state', state });
   }
 
   private emitEvent(e: LiveKahootEvent): void {
-    this.emit('event', e);
+    this.eventHandlers.forEach((fn) => {
+      try { fn(e); } catch { /* listener crash-proof */ }
+    });
   }
 
   onEvent(fn: (e: LiveKahootEvent) => void): () => void {
-    this.on('event', fn);
-    return () => this.off('event', fn);
+    this.eventHandlers.add(fn);
+    return () => this.eventHandlers.delete(fn);
   }
 
   /* ---------------- join ---------------- */
@@ -151,80 +176,24 @@ export class KahootLiveClient extends EventEmitter {
     this.pin = pin;
     this.nickname = nickname;
 
-    // 1. Reserve a session slot with Kahoot.
+    // 1. Reserve a session slot with Kahoot (direct HTTP on the connector,
+    //    relay API in browsers — injected, identical honest error codes).
     this.setState('reserving');
-    const reserveUrl = `${this.cfg.reserveBase}/reserve/session/${encodeURIComponent(pin)}/?${Date.now()}`;
-    let res: Response;
+    let reserved: ReserveData;
     try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), this.cfg.reserveTimeoutMs);
-      try {
-        res = await fetch(reserveUrl, {
-          method: 'GET',
-          headers: {
-            Accept: 'application/json',
-            'User-Agent': this.cfg.userAgent,
-            Origin: 'https://kahoot.it',
-            Referer: 'https://kahoot.it/',
-          },
-          signal: ctrl.signal,
-        });
-      } finally {
-        clearTimeout(timer);
-      }
+      reserved = await this.reserveFn(pin);
     } catch (e) {
       this.setState('failed');
-      if (e instanceof Error && e.name === 'AbortError') {
-        throw new LiveError('RESERVE_TIMEOUT', `Kahoot did not answer the session request within ${this.cfg.reserveTimeoutMs / 1000}s. Check your connection and retry.`);
-      }
-      throw new LiveError(
-        'NETWORK_ERROR',
-        'Could not reach Kahoot (reserve/session). Check internet access and DNS, and confirm kahoot.it is reachable from this network.',
-        e instanceof Error ? e.message : String(e),
-      );
+      throw e;
     }
-
-    if (res.status === 404) {
-      this.setState('failed');
-      throw new LiveError('PIN_NOT_FOUND', `No live game found for PIN ${pin}. PINs expire when the host ends the game — confirm the current PIN on the host screen.`);
-    }
-    if (res.status === 429) {
-      this.setState('failed');
-      throw new LiveError('RATE_LIMITED', 'Kahoot rate-limited this network address. Wait a minute and retry; avoid rapid repeated joins.');
-    }
-    if (res.status === 403) {
-      this.setState('failed');
-      throw new LiveError('BLOCKED', 'Kahoot refused the session request (HTTP 403). The network may be blocked or filtered.');
-    }
-    if (!res.ok) {
-      this.setState('failed');
-      throw new LiveError('RESERVE_FAILED', `Kahoot session request failed with HTTP ${res.status}. Retry in a moment.`);
-    }
-
-    let body: { challenge?: unknown; twoFactorAuth?: unknown; namerator?: unknown };
-    try {
-      body = (await res.json()) as typeof body;
-    } catch {
-      this.setState('failed');
-      throw new LiveError('PROTOCOL_ERROR', 'Kahoot returned an unreadable session response (invalid JSON).');
-    }
-    const sessionToken = res.headers.get('x-kahoot-session-token');
-    if (!sessionToken) {
-      this.setState('failed');
-      throw new LiveError('PROTOCOL_ERROR', 'Kahoot session response is missing the session token header.');
-    }
-    if (typeof body.challenge !== 'string' || body.challenge.length === 0) {
-      this.setState('failed');
-      throw new LiveError('PROTOCOL_ERROR', 'Kahoot session response is missing the challenge payload.');
-    }
-    this.twoFactor = body.twoFactorAuth === true;
-    this.namerator = (body as { namerator?: unknown }).namerator === true;
+    this.twoFactor = reserved.twoFactorAuth;
+    this.namerator = reserved.namerator;
 
     // 2. Solve the challenge and derive the CometD token.
     this.setState('solving');
     let solution: string;
     try {
-      solution = solveChallenge(body.challenge);
+      solution = solveChallenge(reserved.challenge);
     } catch (e) {
       this.setState('failed');
       if (e instanceof ChallengeError) {
@@ -234,7 +203,7 @@ export class KahootLiveClient extends EventEmitter {
     }
     let cometToken: string;
     try {
-      cometToken = deriveCometToken(sessionToken, solution);
+      cometToken = deriveCometToken(reserved.sessionToken, solution);
     } catch (e) {
       this.setState('failed');
       throw new LiveError('PROTOCOL_ERROR', e instanceof Error ? e.message : 'Could not derive the session token.');
@@ -242,11 +211,14 @@ export class KahootLiveClient extends EventEmitter {
 
     // 3. Bayeux handshake + subscriptions.
     this.setState('connecting');
-    const bayeux = new BayeuxClient({
-      handshakeTimeoutMs: this.cfg.handshakeTimeoutMs,
-      connectTimeoutMs: this.cfg.handshakeTimeoutMs,
-      userAgent: this.cfg.userAgent,
-    });
+    const bayeux = new BayeuxClient(
+      {
+        handshakeTimeoutMs: this.cfg.handshakeTimeoutMs,
+        connectTimeoutMs: this.cfg.handshakeTimeoutMs,
+        userAgent: this.cfg.userAgent,
+      },
+      this.createSocket,
+    );
     this.bayeux = bayeux;
     this.offs.push(bayeux.onMessage((channel, msg) => this.routeMessage(channel, msg)));
     this.offs.push(
@@ -640,6 +612,75 @@ export class KahootLiveClient extends EventEmitter {
         break;
     }
   }
+}
+
+/** Direct reserve fetcher for environments that can call Kahoot over HTTP
+ *  (the connector, tests). Browsers must use the relay API instead (CORS). */
+export function createDirectReserve(cfg: Pick<ConnectorConfig, 'reserveBase' | 'reserveTimeoutMs' | 'userAgent'>): ReserveFn {
+  return async (pin: string): Promise<ReserveData> => {
+    const reserveUrl = `${cfg.reserveBase}/reserve/session/${encodeURIComponent(pin)}/?${Date.now()}`;
+    let res: Response;
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), cfg.reserveTimeoutMs);
+      try {
+        res = await fetch(reserveUrl, {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            'User-Agent': cfg.userAgent,
+            Origin: 'https://kahoot.it',
+            Referer: 'https://kahoot.it/',
+          },
+          signal: ctrl.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        throw new LiveError('RESERVE_TIMEOUT', `Kahoot did not answer the session request within ${cfg.reserveTimeoutMs / 1000}s. Check your connection and retry.`);
+      }
+      throw new LiveError(
+        'NETWORK_ERROR',
+        'Could not reach Kahoot (reserve/session). Check internet access and DNS, and confirm kahoot.it is reachable from this network.',
+        e instanceof Error ? e.message : String(e),
+      );
+    }
+
+    if (res.status === 404) {
+      throw new LiveError('PIN_NOT_FOUND', `No live game found for PIN ${pin}. PINs expire when the host ends the game — confirm the current PIN on the host screen.`);
+    }
+    if (res.status === 429) {
+      throw new LiveError('RATE_LIMITED', 'Kahoot rate-limited this network address. Wait a minute and retry; avoid rapid repeated joins.');
+    }
+    if (res.status === 403) {
+      throw new LiveError('BLOCKED', 'Kahoot refused the session request (HTTP 403). The network may be blocked or filtered.');
+    }
+    if (!res.ok) {
+      throw new LiveError('RESERVE_FAILED', `Kahoot session request failed with HTTP ${res.status}. Retry in a moment.`);
+    }
+
+    let body: { challenge?: unknown; twoFactorAuth?: unknown; namerator?: unknown };
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      throw new LiveError('PROTOCOL_ERROR', 'Kahoot returned an unreadable session response (invalid JSON).');
+    }
+    const sessionToken = res.headers.get('x-kahoot-session-token');
+    if (!sessionToken) {
+      throw new LiveError('PROTOCOL_ERROR', 'Kahoot session response is missing the session token header.');
+    }
+    if (typeof body.challenge !== 'string' || body.challenge.length === 0) {
+      throw new LiveError('PROTOCOL_ERROR', 'Kahoot session response is missing the challenge payload.');
+    }
+    return {
+      challenge: body.challenge,
+      sessionToken,
+      twoFactorAuth: body.twoFactorAuth === true,
+      namerator: (body as { namerator?: unknown }).namerator === true,
+    };
+  };
 }
 
 /** Probe whether Kahoot's reserve host is reachable (TCP+TLS handshake, no game touched). */

@@ -42,7 +42,7 @@ export default function Connection() {
     <div>
       <PageHeader
         title="Game Connection"
-        subtitle="Attach to the authorized test environment — or join a real live game through the connector. Every status on this page reflects a real check."
+        subtitle="Attach to the authorized test environment — or join a real live game. Every status on this page reflects a real check."
         right={
           connected ? (
             <Button variant="secondary" size="sm" onClick={() => navigate('/automation')}>
@@ -95,7 +95,7 @@ export default function Connection() {
                       <span className="text-sm font-semibold text-ink">Live</span>
                       {mode === 'live' && <CheckCircle2 size={15} className="ml-auto text-accent2" />}
                     </span>
-                    <span className="mt-1.5 block text-xs leading-relaxed text-muted">Real join through the connector backend: reserve/session → challenge → CometD → login. Requires the connector (`npm run server`) and network access to Kahoot.</span>
+                    <span className="mt-1.5 block text-xs leading-relaxed text-muted">Real join: reserve/session → challenge → CometD → login. Direct mode works out of the box; connector mode needs `npm run server`. Both need network access to Kahoot.</span>
                   </button>
                 </div>
               </div>
@@ -120,9 +120,9 @@ export default function Connection() {
               <div className="mt-4">
                 <Notice
                   tone="info"
-                  title="Why a connector backend?"
-                  body="Browsers cannot hold this connection directly: Kahoot's session endpoints reject cross-origin calls from arbitrary pages, and the game channel is a stateful socket that must stay open for the entire game. The connector performs the real handshake server-side and streams it to this UI — the same flow as the official web client, one player at a time."
-                  action={<Button size="sm" variant="secondary" onClick={() => navigate('/settings')}>Connector settings</Button>}
+                  title="How live mode connects"
+                  body="Direct (default): this browser reserves a real seat through the tiny /api/kahoot-reserve relay (Kahoot's session endpoint sends no CORS headers, so that one step is relayed), then solves the challenge and holds the game channel open itself — the same flow as the official web client, one player at a time. Prefer a backend? Switch to connector mode in Settings."
+                  action={<Button size="sm" variant="secondary" onClick={() => navigate('/settings')}>Live settings</Button>}
                 />
               </div>
             )}

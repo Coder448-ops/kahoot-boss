@@ -1,5 +1,6 @@
 /* KAHOOT BOSS — live game runner.
-   Drives a REAL Kahoot session through the connector backend: lobby, live
+   Drives a REAL Kahoot session through the live backend (direct in-browser
+   engine or the optional connector): lobby, live
    questions (metadata only — Kahoot shows question text on the host screen),
    operator-assisted solving, real answer submission, and genuine feedback
    (correct / points / rank / streak) reported by Kahoot itself. */
@@ -41,7 +42,8 @@ import {
   Toggle,
 } from '../components/ui';
 import { useStore, sessionStats } from '../store/useStore';
-import { liveApi, resolveLiveBase, LiveBackendError, type LiveEvent, type LiveSnapshot } from '../engine/liveClient';
+import { LiveBackendError, type LiveEvent, type LiveSnapshot } from '../engine/liveClient';
+import { resolveLiveRuntime } from '../engine/directLive';
 import { methodLabel, solveLocal } from '../engine/solver';
 import { solveViaApi } from '../engine/apiClient';
 import { trySolveNeural } from '../engine/neuralSolver';
@@ -98,7 +100,8 @@ export default function LiveRunner() {
   const setConnection = useStore((s) => s.setConnection);
   const disconnectStore = useStore((s) => s.disconnect);
 
-  const base = React.useMemo(() => resolveLiveBase(settings.liveBackendUrl), [settings.liveBackendUrl]);
+  const { api, base, mode } = React.useMemo(() => resolveLiveRuntime(settings), [settings]);
+  const backendNoun = mode === 'direct' ? 'direct live engine' : 'connector';
   const [snapshot, setSnapshot] = React.useState<LiveSnapshot | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -172,7 +175,7 @@ export default function LiveRunner() {
   /* ---------- status + event stream ---------- */
   const refreshStatus = React.useCallback(async () => {
     try {
-      const { data } = await liveApi.status(base, 8000);
+      const { data } = await api.status(base, 8000);
       setSnapshot(data.snapshot);
       setLoadError(null);
       return data.snapshot;
@@ -181,7 +184,7 @@ export default function LiveRunner() {
       setLoadError(err.message);
       return null;
     }
-  }, [base]);
+  }, [api, base]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -193,14 +196,14 @@ export default function LiveRunner() {
         pushFeed('info', `Attached to live session (state: ${snap.state}).`);
         if (snap.state === 'idle' || snap.state === 'closed' || snap.state === 'failed') {
           setFatal({
-            title: 'No live session on the connector',
-            body: 'The connector reports no active game. The join may have expired — reconnect to start a fresh live session.',
+            title: `No live session on the ${backendNoun}`,
+            body: `The ${backendNoun} reports no active game. The join may have expired — reconnect to start a fresh live session.`,
           });
         }
       }
     });
 
-    const off = liveApi.subscribe(
+    const off = api.subscribe(
       base,
       (e) => handleLiveEvent(e),
       () => setStreamBroken(true),
@@ -368,7 +371,7 @@ export default function LiveRunner() {
         if (unexpected) {
           setFatal({ title: 'Live connection lost', body: e.type === 'closed' ? `The game channel closed unexpectedly (${e.reason || 'no reason given'}). Reconnect to rejoin — note Kahoot usually cannot rejoin mid-game.` : 'Session ended.' });
         } else {
-          setFatal({ title: 'Live session ended', body: 'The connector session is closed. Reconnect to join a new game.' });
+          setFatal({ title: 'Live session ended', body: 'The live session is closed. Reconnect to join a new game.' });
         }
         break;
       }
@@ -478,7 +481,7 @@ export default function LiveRunner() {
     if (!snap?.current || snap.current.answered || submitting) return;
     setSubmitting(true);
     try {
-      await liveApi.answer(base, choice, 10000);
+      await api.answer(base, choice, 10000);
       if (sid) {
         upsertLiveAnswer(sid, {
           questionId: qidFor(snap.pin ?? '', snap.current.index),
@@ -516,7 +519,7 @@ export default function LiveRunner() {
     setTfaBusy(true);
     setTfaError(null);
     try {
-      const { data } = await liveApi.twoFactor(base, tfaSeq, 25000);
+      const { data } = await api.twoFactor(base, tfaSeq, 25000);
       if (!data.ok) {
         setTfaError('Pattern rejected by Kahoot. Wait for a fresh pattern and retry.');
         setTfaSeq('');
@@ -533,7 +536,7 @@ export default function LiveRunner() {
 
   const handleLeave = async (): Promise<void> => {
     try {
-      await liveApi.leave(base, 6000);
+      await api.leave(base, 6000);
     } catch { /* best effort */ }
     const sid = sessionIdRef.current;
     if (sid) {
@@ -553,7 +556,7 @@ export default function LiveRunner() {
     return (
       <div className="flex items-center gap-3 rounded-2xl border border-line bg-panel/80 px-5 py-8">
         <Loader2 size={20} className="animate-spin-slow text-accent" />
-        <p className="text-sm text-muted">Attaching to the live connector session…</p>
+        <p className="text-sm text-muted">Attaching to the live session…</p>
       </div>
     );
   }
@@ -564,7 +567,7 @@ export default function LiveRunner() {
         <CardBody>
           <Notice
             tone="error"
-            title="Cannot reach the live connector"
+            title={mode === 'direct' ? 'Direct live session unavailable' : 'Cannot reach the live connector'}
             body={loadError}
             action={
               <div className="flex gap-2">
@@ -618,7 +621,7 @@ export default function LiveRunner() {
         subtitle={`PIN ${snapshot?.pin ?? connection.pin} · ${snapshot?.nickname ?? connection.nickname}${snapshot?.quizName ? ` · "${snapshot.quizName}"` : ''}`}
         right={
           <>
-            <Button variant="ghost" size="sm" onClick={() => refreshStatus()} title="Refresh connector status"><RefreshCw size={15} /></Button>
+            <Button variant="ghost" size="sm" onClick={() => refreshStatus()} title="Refresh live status"><RefreshCw size={15} /></Button>
             <Button variant="danger" size="sm" onClick={handleLeave}><Unplug size={15} /> Leave game</Button>
           </>
         }
@@ -870,7 +873,7 @@ export default function LiveRunner() {
       <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-muted">
         <Bot size={14} className="mt-0.5 shrink-0" />
         <span>
-          How live mode works: your connector joined this game for real (PIN {snapshot?.pin}). Kahoot streams timing events only — the question itself stays on the host screen.
+          How live mode works: you joined this game for real (PIN {snapshot?.pin}). Kahoot streams timing events only — the question itself stays on the host screen.
           Type what you see, let the solver rank the options, then submit through the same channel. Correctness, points and rank come back from Kahoot untouched.
           Started {liveSession ? formatDateTime(liveSession.startedAt) : '—'}.
         </span>

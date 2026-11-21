@@ -4,7 +4,8 @@ import { Bot, Brain, CheckCircle2, Database, Download, Eye, EyeOff, FlaskConical
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, Notice, PageHeader, Select, Slider, StatusDot, Toggle } from '../components/ui';
 import { useStore, DEFAULT_SETTINGS } from '../store/useStore';
 import { solveViaApi } from '../engine/apiClient';
-import { liveApi, resolveLiveBase, type LiveHealth } from '../engine/liveClient';
+import { type LiveHealth } from '../engine/liveClient';
+import { resolveLiveRuntime } from '../engine/directLive';
 import { NEURAL_MODEL_ID, NEURAL_MODEL_PARAMS, NEURAL_MODEL_SIZE, ensureNeuralModel } from '../engine/neuralSolver';
 import { validateApiUrl, validateDisplayName } from '../lib/validation';
 import { downloadFile, formatMs } from '../lib/utils';
@@ -80,16 +81,18 @@ export default function Settings() {
     }
   };
 
+  const liveMode = settings.liveMode ?? 'direct';
   const testConnector = async () => {
     setLiveTesting(true);
     setLiveHealth(null);
     setLiveHealthError(null);
     try {
-      const { data } = await liveApi.health(resolveLiveBase(settings.liveBackendUrl), 9000);
+      const { api, base, mode } = resolveLiveRuntime(settings);
+      const { data } = await api.health(base, mode === 'direct' ? 15000 : 9000);
       setLiveHealth(data);
-      pushActivity('settings', `Connector check: v${data.version} · Kahoot ${data.kahootReachable ? `reachable (${data.kahootLatencyMs} ms)` : 'unreachable'}`);
+      pushActivity('settings', `${mode === 'direct' ? 'Direct' : 'Connector'} check: v${data.version} · Kahoot ${data.kahootReachable ? `reachable (${data.kahootLatencyMs} ms)` : 'unreachable'}`);
     } catch (e) {
-      setLiveHealthError(e instanceof Error ? e.message : 'Connector check failed.');
+      setLiveHealthError(e instanceof Error ? e.message : 'Live backend check failed.');
     } finally {
       setLiveTesting(false);
     }
@@ -226,20 +229,28 @@ export default function Settings() {
           </CardBody>
         </Card>
 
-        {/* Live connector backend */}
+        {/* Live backend */}
         <Card>
           <CardHeader
-            title="Live connector backend"
-            subtitle="The server that performs real joins. Same-origin /live in dev; your deployed URL in production."
+            title="Live backend"
+            subtitle="How this browser joins real games: directly, or through the optional connector server."
             right={<Badge tone={liveHealth ? (liveHealth.kahootReachable ? 'good' : 'warn') : 'muted'}><Radio size={12} /> {liveHealth ? (liveHealth.kahootReachable ? 'Ready' : 'No Kahoot route') : 'Unchecked'}</Badge>}
           />
           <CardBody className="space-y-4">
-            <Notice tone="info" title="How live mode connects" body="The connector (server/) runs beside this UI: it reserves a real seat with Kahoot, solves the session challenge, and holds the game channel open. Run it with `npm run server`, or deploy server/ to any Node host and paste its URL below." />
-            <Field label="Connector base URL" hint="Default /live uses the dev proxy (same origin). Example remote: https://your-connector.example.com/live">
-              <Input value={settings.liveBackendUrl} onChange={(e) => updateSettings({ liveBackendUrl: e.target.value })} placeholder="/live" />
+            <Notice tone="info" title="How live mode connects" body="Direct (default): this browser reserves a real seat with Kahoot through the tiny /api/kahoot-reserve relay, solves the session challenge, and holds the game channel open — no backend to run. Connector: the same engine runs on your own Node host (npm run server) and this UI talks to it over REST + SSE." />
+            <Field label="Live connection mode" hint={liveMode === 'direct' ? 'Recommended — works on the deployed site with zero setup.' : 'Advanced — needs a running connector; use it in local dev.'}>
+              <Select value={liveMode} onChange={(e) => updateSettings({ liveMode: e.target.value as 'direct' | 'connector' })}>
+                <option value="direct">Direct — in-browser engine + reserve relay</option>
+                <option value="connector">Connector — self-hosted server (npm run server)</option>
+              </Select>
             </Field>
+            {liveMode === 'connector' && (
+              <Field label="Connector base URL" hint="Default /live uses the dev proxy (same origin). Example remote: https://your-connector.example.com/live">
+                <Input value={settings.liveBackendUrl} onChange={(e) => updateSettings({ liveBackendUrl: e.target.value })} placeholder="/live" />
+              </Field>
+            )}
             <div>
-              <Button variant="secondary" loading={liveTesting} onClick={testConnector}><Radio size={16} /> Check connector health</Button>
+              <Button variant="secondary" loading={liveTesting} onClick={testConnector}><Radio size={16} /> {liveMode === 'direct' ? 'Check direct live path' : 'Check connector health'}</Button>
               {liveHealthError && (
                 <p className="mt-2 flex items-start gap-2 rounded-xl border border-bad/30 bg-bad/5 px-3.5 py-2.5 text-[13px] leading-relaxed text-red-200">
                   <StatusDot tone="bad" /> {liveHealthError}
@@ -249,7 +260,7 @@ export default function Settings() {
                 <div className="mt-2.5 rounded-xl border border-line bg-void/50 p-3.5">
                   <p className="flex items-center gap-2 text-sm font-semibold text-ink">
                     <StatusDot tone={liveHealth.kahootReachable ? 'good' : 'warn'} />
-                    Connector v{liveHealth.version} · protocol {liveHealth.protocol}
+                    {liveHealth.service === 'kahoot-boss-direct' ? 'Direct engine' : 'Connector'} v{liveHealth.version} · protocol {liveHealth.protocol}
                   </p>
                   <dl className="mt-2.5 grid grid-cols-2 gap-2">
                     {[

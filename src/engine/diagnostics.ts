@@ -3,8 +3,8 @@
 
 import type { DiagnosticCheck, Settings } from '../lib/types';
 import { checkHealth } from './apiClient';
-import { liveApi, resolveLiveBase } from './liveClient';
 import { solverSelfTest } from './solver';
+import { resolveLiveRuntime } from './directLive';
 
 export type DiagnosticProgress = (check: DiagnosticCheck) => void;
 
@@ -65,15 +65,17 @@ async function checkBackend(): Promise<DiagnosticCheck> {
 }
 
 async function checkLive(settings: Settings): Promise<DiagnosticCheck> {
-  const c = entry('live', 'Live connector backend');
-  const base = resolveLiveBase(settings.liveBackendUrl);
+  const { api, base, mode } = resolveLiveRuntime(settings);
+  const noun = mode === 'direct' ? 'Direct live engine' : 'Live connector backend';
+  const c = entry('live', noun);
   try {
-    const { data, latencyMs } = await liveApi.health(base, 9000);
+    const { data, latencyMs } = await api.health(base, mode === 'direct' ? 15000 : 9000);
+    const at = mode === 'direct' ? 'in this browser' : `at ${base}`;
     if (!data.kahootReachable) {
       return {
         ...c,
         status: 'warn',
-        detail: `Connector v${data.version} (${data.protocol}) is up at ${base}, but it cannot reach Kahoot from its network — joins will fail until Kahoot is reachable. Simulation mode is unaffected.`,
+        detail: `${noun} v${data.version} (${data.protocol}) is up ${at}, but it cannot reach Kahoot — joins will fail until Kahoot is reachable. ${data.kahootProbeNote} Simulation mode is unaffected.`,
         latencyMs,
       };
     }
@@ -81,21 +83,24 @@ async function checkLive(settings: Settings): Promise<DiagnosticCheck> {
       return {
         ...c,
         status: 'warn',
-        detail: `Connector is online (Kahoot reachable in ${Math.round(data.kahootLatencyMs ?? 0)} ms) but busy with another live session (${data.sessionState}).`,
+        detail: `${noun} is online (Kahoot reachable in ${Math.round(data.kahootLatencyMs ?? 0)} ms) but busy with another live session (${data.sessionState}).`,
         latencyMs,
       };
     }
     return {
       ...c,
       status: 'pass',
-      detail: `Connector v${data.version} online — Kahoot reachable in ${Math.round(data.kahootLatencyMs ?? 0)} ms, session slot free.`,
+      detail: `${noun} v${data.version} online — Kahoot reachable in ${Math.round(data.kahootLatencyMs ?? 0)} ms, session slot free.`,
       latencyMs,
     };
   } catch (e) {
+    const fix = mode === 'direct'
+      ? 'The reserve relay is deployed with this site — if this persists, the deployment or network is down.'
+      : `Start it with \`npm run server\`, or set its URL in Settings.`;
     return {
       ...c,
       status: 'warn',
-      detail: `Live connector unreachable at ${base} (${e instanceof Error ? e.message : 'network error'}). Start it with \`npm run server\`, or set its URL in Settings. Simulation mode remains available.`,
+      detail: `${noun} unreachable ${mode === 'direct' ? '(direct mode)' : `at ${base}`} (${e instanceof Error ? e.message : 'network error'}). ${fix} Simulation mode remains available.`,
     };
   }
 }

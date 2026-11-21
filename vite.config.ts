@@ -15,6 +15,12 @@ export default defineConfig({
         target: 'http://127.0.0.1:3001',
         changeOrigin: true,
       },
+      // Dev-only: the serverless reserve relay has no local equivalent, so
+      // local dev proxies it to the deployed site (real relay, real Kahoot).
+      '/api/kahoot-reserve': {
+        target: 'https://kahoot-boss.vercel.app',
+        changeOrigin: true,
+      },
     },
   },
   preview: {

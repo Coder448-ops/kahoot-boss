@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   confidenceThreshold: 0.4,
   defaultQuestionCount: 10,
   defaultTimeLimitSec: 20,
+  liveMode: 'direct',
   liveBackendUrl: (import.meta.env.VITE_LIVE_BACKEND_URL as string | undefined)?.trim() || '/live',
   persistHistory: true,
   soundEnabled: false,

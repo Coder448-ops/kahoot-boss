@@ -1,9 +1,26 @@
 /* KAHOOT BOSS — minimal Bayeux (CometD) client over WebSocket.
    Implements exactly what the Kahoot player flow needs: handshake, the
    /meta/connect long-poll heartbeat loop, subscribe, publish and disconnect.
-   Every wait has a timeout; every failure is reported, never masked. */
+   Every wait has a timeout; every failure is reported, never masked.
 
-import WebSocket from 'ws';
+   Isomorphic: the WebSocket implementation is injected, so this file runs
+   unchanged on the connector (Node `ws`) and in browsers (native WebSocket). */
+
+/** Minimal socket surface the Bayeux client needs. Implemented by the `ws`
+ *  package on the server (see nodeSocket.ts) and by the native WebSocket
+ *  in browsers. `userAgent` is honored only where the platform allows
+ *  custom headers (Node); browsers forbid it and the adapter ignores it. */
+export interface BayeuxSocket {
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+  isOpen(): boolean;
+  onOpen(fn: () => void): void;
+  onMessage(fn: (data: string) => void): void;
+  onClose(fn: (code: number, reason: string) => void): void;
+  onError(fn: (err: Error) => void): void;
+}
+
+export type WsFactory = (url: string, userAgent: string) => BayeuxSocket;
 
 export interface BayeuxMessage {
   id?: string;
@@ -28,7 +45,7 @@ export interface BayeuxOptions {
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: NodeJS.Timeout | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(message)), ms);
   });
@@ -38,11 +55,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 export class BayeuxClient {
-  private ws: WebSocket | null = null;
+  private ws: BayeuxSocket | null = null;
   private msgId = 0;
   private clientId: string | null = null;
   private state: BayeuxState = 'idle';
-  private connectTimer: NodeJS.Timeout | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private lastConnectSentAt = 0;
   private lastRttMs = 0;
   private destroyed = false;
@@ -52,7 +69,10 @@ export class BayeuxClient {
   private closeHandlers = new Set<(info: { code: number; reason: string; unexpected: boolean }) => void>();
   private errorHandlers = new Set<(err: Error) => void>();
 
-  constructor(private readonly opts: BayeuxOptions) {}
+  constructor(
+    private readonly opts: BayeuxOptions,
+    private readonly createSocket: WsFactory,
+  ) {}
 
   onMessage(fn: (channel: string, msg: BayeuxMessage) => void): () => void {
     this.messageHandlers.add(fn);
@@ -87,7 +107,7 @@ export class BayeuxClient {
   }
 
   private send(messages: BayeuxMessage[]): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (!this.ws || !this.ws.isOpen()) {
       throw new Error('Cannot send: WebSocket is not open.');
     }
     this.ws.send(JSON.stringify(messages));
@@ -103,16 +123,16 @@ export class BayeuxClient {
     await withTimeout(
       new Promise<void>((resolve, reject) => {
         let settled = false;
-        const ws = new WebSocket(url, { headers: { 'User-Agent': this.opts.userAgent } });
+        const ws = this.createSocket(url, this.opts.userAgent);
         this.ws = ws;
-        ws.on('open', () => {
+        ws.onOpen(() => {
           if (settled) return;
           settled = true;
           resolve();
         });
-        ws.on('message', (data) => this.handleFrame(String(data)));
-        ws.on('close', (code, reason) => this.handleClose(code, String(reason ?? '')));
-        ws.on('error', (err) => {
+        ws.onMessage((data) => this.handleFrame(data));
+        ws.onClose((code, reason) => this.handleClose(code, reason));
+        ws.onError((err) => {
           this.errorHandlers.forEach((fn) => {
             try { fn(err instanceof Error ? err : new Error(String(err))); } catch { /* listener crash-proof */ }
           });
@@ -129,7 +149,7 @@ export class BayeuxClient {
 
   /** Full handshake + start of the /meta/connect heartbeat loop. */
   async handshake(): Promise<string> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error('Cannot handshake: WebSocket is not open.');
+    if (!this.ws || !this.ws.isOpen()) throw new Error('Cannot handshake: WebSocket is not open.');
     this.state = 'handshaking';
     const id = this.nextId();
 
@@ -190,7 +210,8 @@ export class BayeuxClient {
         this.destroy(1013, 'heartbeat timeout');
       }
     }, 90000);
-    this.connectTimer.unref?.();
+    // Don't hold the Node process open for the heartbeat; browsers ignore this.
+    (this.connectTimer as unknown as { unref?: () => void }).unref?.();
   }
 
   private onConnectReply(msg: BayeuxMessage): void {
@@ -218,7 +239,7 @@ export class BayeuxClient {
       return;
     }
     // Normal case: immediately queue the next heartbeat.
-    setImmediate(() => this.pumpConnect());
+    setTimeout(() => this.pumpConnect(), 0);
   }
 
   async subscribe(channels: string[]): Promise<void> {
@@ -270,7 +291,7 @@ export class BayeuxClient {
     if (this.destroyed) return;
     this.destroyed = true;
     try {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN && this.clientId) {
+      if (this.ws && this.ws.isOpen() && this.clientId) {
         this.send([{ id: this.nextId(), channel: '/meta/disconnect', clientId: this.clientId }]);
       }
     } catch { /* best effort */ }

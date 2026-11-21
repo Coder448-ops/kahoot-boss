@@ -115,7 +115,20 @@ export interface JoinResult {
   snapshot: LiveSnapshot;
 }
 
-export const liveApi = {
+/** Live backend surface. Implemented by the connector client (REST + SSE)
+ *  below and by the direct in-browser runtime (src/engine/directLive.ts),
+ *  so the UI works identically against either transport. */
+export interface LiveApi {
+  health(base: string, timeoutMs?: number): Promise<{ data: LiveHealth; latencyMs: number }>;
+  status(base: string, timeoutMs?: number): Promise<{ data: { status: string; snapshot: LiveSnapshot }; latencyMs: number }>;
+  join(base: string, pin: string, nickname: string, timeoutMs?: number): Promise<{ data: JoinResult; latencyMs: number }>;
+  twoFactor(base: string, sequence: string, timeoutMs?: number): Promise<{ data: { status: string; ok: boolean; snapshot: LiveSnapshot }; latencyMs: number }>;
+  answer(base: string, choice: number, timeoutMs?: number): Promise<{ data: { status: string; sent: boolean; index: number; choice: number }; latencyMs: number }>;
+  leave(base: string, timeoutMs?: number): Promise<{ data: { status: string; snapshot: LiveSnapshot }; latencyMs: number }>;
+  subscribe(base: string, onEvent: (e: LiveEvent) => void, onError?: (err: Error) => void): () => void;
+}
+
+export const liveApi: LiveApi = {
   health(base: string, timeoutMs = 8000): Promise<{ data: LiveHealth; latencyMs: number }> {
     return req<LiveHealth>(base, '/health', { method: 'GET' }, timeoutMs);
   },
@@ -177,7 +190,8 @@ export function liveErrorHint(code: string): string {
     case 'NAME_REJECTED': return 'Try a different nickname.';
     case 'SESSION_BUSY': return 'One live session at a time — leave the current one first.';
     case 'RATE_LIMITED': return 'Wait a minute before retrying.';
-    case 'CHALLENGE_FAILED': return 'The connector needs a protocol update for the new challenge format.';
+    case 'RELAY_UNREACHABLE': return 'The reserve relay is unreachable. It runs on the deployed site — in local dev, use connector mode (`npm run server`).';
+    case 'CHALLENGE_FAILED': return 'The app needs a protocol update for the new challenge format.';
     default: return '';
   }
 }
