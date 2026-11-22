@@ -13,7 +13,10 @@ function tokenize(expr: string): Token[] | null {
   let prev: Token | null = null;
   while (i < s.length) {
     const c = s[i];
-    if (c === ' ') { i++; continue; }
+    // Any JS whitespace (space, tab, newline, NBSP, en/em spaces, …) — Kahoot
+    // challenge offsets arrive with exotic spacing, and skipping whitespace
+    // never changes arithmetic semantics.
+    if (c === ' ' || /\s/.test(c)) { i++; continue; }
     if (/[0-9.]/.test(c)) {
       let j = i;
       while (j < s.length && /[0-9.]/.test(s[j])) j++;

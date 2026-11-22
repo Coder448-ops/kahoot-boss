@@ -74,6 +74,41 @@ async function main(): Promise<void> {
     assert(`challenge variant ${i + 1} matches JS-eval reference`, solveChallenge(v) === referenceEval(v));
   });
 
+  // Real-world drift: Kahoot ships offset expressions with exotic whitespace
+  // (tabs, newlines, NBSP, em spaces) and comment/zero-width obfuscation.
+  // Each must solve identically to the JS-eval reference (no eval in prod path).
+  const obfuscated = [
+    sample.replace('(20 + ((61 + 3) + 22 + 86))', '((72\t*29)\n+\r\n(8*\u00A0(62\u2003*29)))'),
+    sample.replace('(20 + ((61 + 3) + 22 + 86))', '((72\u2007*29)\u2028+\u2029(8*\uFEFF(62\u00A0*29)))'),
+    sample.replace('(20 + ((61 + 3) + 22 + 86))', '((72/**/+29) + (8* (62/*x*/*29))) // trailing'),
+  ];
+  obfuscated.forEach((v, i) => {
+    assert(`obfuscated offset ${i + 1} matches JS-eval reference`, solveChallenge(v) === referenceEval(v));
+  });
+
+  // Zero-width format chars are NOT valid JS (the reference itself would throw),
+  // so assert the parsed offset directly: (72*29)+(8*(62*29)) = 16472.
+  const zeroWidth = [
+    sample.replace('(20 + ((61 + 3) + 22 + 86))', '((72\u200B*29) + (8* (62\u200B*29)))'),
+    sample.replace('(20 + ((61 + 3) + 22 + 86))', '((72\u200C*29) + (8*\u200D(62\u2060*29)))'),
+  ];
+  zeroWidth.forEach((v, i) => {
+    assert(`zero-width offset ${i + 1} parses to 16472`, parseChallenge(v).offset === 16472);
+  });
+
+  // Truly unknown characters still fail — but now name their codepoints.
+  const backslash = sample.replace('(20 + ((61 + 3) + 22 + 86))', '((72 *29) + (8* (62 \\*29)))');
+  try {
+    solveChallenge(backslash);
+    assert('backslash offset rejected with codepoint diagnostics', false, 'solve unexpectedly succeeded');
+  } catch (e) {
+    assert(
+      'backslash offset rejected with codepoint diagnostics',
+      e instanceof ChallengeError && /U\+005C/.test(e.message),
+      e instanceof Error ? e.message : String(e),
+    );
+  }
+
   const parts = parseChallenge(sample);
   assert('offset parsed as 192', parts.offset === 192, `got ${parts.offset}`);
   assert('mod/plus parsed as 77/48', parts.mod === 77 && parts.plus === 48);

@@ -44,6 +44,33 @@ export interface ChallengeParts {
  *     });
  *   }
  */
+/**
+ * Normalize a raw offset expression to plain arithmetic WITHOUT changing its
+ * meaning (mirrors JS semantics, still no eval — the whitelist tokenizer in
+ * evaluateExpression remains the final gate):
+ * - JS comments (`/* … *\/`, `// …`) become a space (spec: comments are whitespace),
+ * - Unicode format characters (zero-width spaces/joiners, …) become a space
+ *   (a space, never deletion, so `2<ZWJ>3` honestly fails like JS would),
+ * - control characters other than tab/newline/CR (kept as whitespace) become
+ *   a space for the same reason.
+ */
+function normalizeOffsetExpression(raw: string): string {
+  return raw
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\n\r\u2028\u2029]*/g, ' ')
+    .replace(/\p{Cf}/gu, ' ')
+    .replace(/[\x00-\x08\x0E-\x1F\x7F-\x9F]/g, ' ');
+}
+
+/** List unexpected codepoints (U+XXXX) for honest drift diagnostics. */
+function describeUnexpectedChars(s: string): string | null {
+  const bad = [...new Set([...s].filter((ch) => !/[0-9+\-*/%^().\s]/.test(ch)))];
+  if (bad.length === 0) return null;
+  return bad
+    .map((ch) => `U+${((ch.codePointAt(0) ?? 0).toString(16).toUpperCase()).padStart(4, '0')}`)
+    .join(', ');
+}
+
 export function parseChallenge(challenge: string): ChallengeParts {
   if (!challenge || typeof challenge !== 'string' || challenge.length > 20000) {
     throw new ChallengeError('Challenge payload is missing or unreasonably large.');
@@ -60,9 +87,14 @@ export function parseChallenge(challenge: string): ChallengeParts {
   if (!offsetMatch) {
     throw new ChallengeError('Unrecognized challenge format: `var offset = …` not found.');
   }
-  const offset = evaluateExpression(offsetMatch[1].trim());
+  const offsetRaw = offsetMatch[1].trim();
+  const offset = evaluateExpression(normalizeOffsetExpression(offsetRaw));
   if (offset === null || !Number.isFinite(offset)) {
-    throw new ChallengeError(`Challenge offset expression could not be evaluated safely: "${offsetMatch[1].trim().slice(0, 120)}".`);
+    const bad = describeUnexpectedChars(offsetRaw);
+    throw new ChallengeError(
+      `Challenge offset expression could not be evaluated safely: "${offsetRaw.slice(0, 120)}".` +
+        (bad ? ` Unexpected character(s): ${bad} — please report this; Kahoot may have changed their challenge format.` : ''),
+    );
   }
 
   const codeIdx = challenge.indexOf('fromCharCode');
