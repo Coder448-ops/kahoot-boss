@@ -245,9 +245,17 @@ export default function Settings() {
               </Select>
             </Field>
             {liveMode === 'connector' && (
-              <Field label="Connector base URL" hint="Default /live uses the dev proxy (same origin). Example remote: https://your-connector.example.com/live">
-                <Input value={settings.liveBackendUrl} onChange={(e) => updateSettings({ liveBackendUrl: e.target.value })} placeholder="/live" />
-              </Field>
+              <>
+                <Field label="Connector base URL" hint="Standalone file: http://127.0.0.1:3001 (see below). Dev proxy: /live. Example remote: https://your-connector.example.com/live">
+                  <Input value={settings.liveBackendUrl} onChange={(e) => updateSettings({ liveBackendUrl: e.target.value })} placeholder="/live" />
+                </Field>
+                <Notice
+                  tone="info"
+                  title="Standalone connector (easiest local option)"
+                  body="One file, no install besides Node 20+: download it, run `node kb-connector.cjs`, keep it running while you play, and use http://127.0.0.1:3001 above. Reserve and game channel then share your network."
+                  action={<Button size="sm" variant="secondary" onClick={() => window.open('https://github.com/Coder448-ops/kahoot-boss/releases/download/connector-v1/kb-connector.cjs', '_blank', 'noopener')}><Download size={14} /> Download kb-connector.cjs</Button>}
+                />
+              </>
             )}
             <div>
               <Button variant="secondary" loading={liveTesting} onClick={testConnector}><Radio size={16} /> {liveMode === 'direct' ? 'Check direct live path' : 'Check connector health'}</Button>

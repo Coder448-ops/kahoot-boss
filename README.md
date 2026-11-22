@@ -84,7 +84,7 @@ Single-player only: one nickname per session, join throttling, no multi-bot feat
 | Mode | How it joins | Needs |
 |---|---|---|
 | **Direct** (default, Settings → Live backend) | In-browser engine: reserve via the serverless `/api/kahoot-reserve` relay (the only step browsers can't do — Kahoot sends no CORS headers), then challenge solve + Bayeux over the native WebSocket, all locally. | Nothing to run — works on the deployed site out of the box. |
-| **Connector** (advanced) | Same engine on your Node host (`npm run server`); the UI talks to it over REST + SSE (contract below). | A long-lived host with outbound Kahoot access. |
+| **Connector** (advanced) | Same engine on your Node host (`npm run server`) or the standalone `kb-connector.cjs` file; the UI talks to it over REST + SSE (contract below). | A host with outbound Kahoot access. Use this if direct mode joins but your nickname never appears on the host screen (split-network seats can be refused). |
 
 Both transports implement the same `LiveApi` surface and emit the same honest codes — the UI behaves identically.
 
@@ -119,6 +119,7 @@ Every error is `{status:'error', error, code}` with an honest, actionable messag
 
 - **UI + direct live (Vercel)**: import the repo (`vercel.json` included; `npm run build` → `dist`). Direct mode works immediately — the `/api/kahoot-reserve` relay deploys as a serverless function alongside the UI. No backend to host.
 - **Connector** (optional, advanced): any long-lived Node host (VPS, Railway, Render, Fly…): `npm ci && npm run server:build && npm run server:start` (needs outbound access to Kahoot), then set `VITE_LIVE_BACKEND_URL` to its URL and pick connector mode in Settings. Or single-process: build the UI, then `SERVE_STATIC=1 STATIC_DIR=dist npm run server:start`.
+- **Standalone connector file** (easiest local option, no repo needed): download [`kb-connector.cjs`](https://github.com/Coder448-ops/kahoot-boss/releases/download/connector-v1/kb-connector.cjs), run `node kb-connector.cjs` (Node 20+, keep it running), pick connector mode in Settings with URL `http://127.0.0.1:3001`. Reserve and game channel then share your network — use this if direct mode joins but your nickname never appears on the host screen.
 
 ## Testing
 

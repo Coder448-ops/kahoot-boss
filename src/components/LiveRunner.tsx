@@ -688,10 +688,21 @@ export default function LiveRunner() {
             </span>
             <div>
               <p className="font-display text-[15px] font-semibold text-ink">In lobby — waiting for the host{snapshot?.quizName ? ` · "${snapshot.quizName}"` : ''}</p>
-              <p className="mt-0.5 text-[13px] text-muted">Your seat is held. Questions appear here the moment the host starts them — keep the host screen visible.</p>
+              <p className="mt-0.5 text-[13px] text-muted">Kahoot accepted the nickname. Only the host screen proves the seat — confirm “{snapshot?.nickname ?? 'your nickname'}” is listed there. Questions appear here the moment the host starts them.</p>
             </div>
           </CardBody>
         </Card>
+      )}
+
+      {/* direct-mode seat warning: reserve and game channel egress from different networks */}
+      {mode === 'direct' && (state === 'lobby' || state === 'awaitingTwoFactor') && !finalScore && (
+        <div className="mb-4">
+          <Notice
+            tone="warn"
+            title="Direct mode: seat not yet proven"
+            body="In direct mode the session reserve goes through the relay network while your game channel runs from your own network. If your nickname does not appear on the host screen, Kahoot refused the split-network seat — switch to connector mode (Settings → Live backend) so reserve and channel share one network."
+          />
+        </div>
       )}
 
       {/* live question */}
@@ -873,7 +884,7 @@ export default function LiveRunner() {
       <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-muted">
         <Bot size={14} className="mt-0.5 shrink-0" />
         <span>
-          How live mode works: you joined this game for real (PIN {snapshot?.pin}). Kahoot streams timing events only — the question itself stays on the host screen.
+          How live mode works: your join request was accepted (PIN {snapshot?.pin}) — the host screen is the proof of your seat. Kahoot streams timing events only — the question itself stays on the host screen.
           Type what you see, let the solver rank the options, then submit through the same channel. Correctness, points and rank come back from Kahoot untouched.
           Started {liveSession ? formatDateTime(liveSession.startedAt) : '—'}.
         </span>

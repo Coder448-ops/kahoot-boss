@@ -137,12 +137,12 @@ export function useConnect() {
       }
       setConnection({
         status: 'connected',
-        detail: `Joined live game ${pin} as "${nickname}" in ${Math.round(latencyMs)} ms.`,
+        detail: `Live join accepted for PIN ${pin} as "${nickname}" in ${Math.round(latencyMs)} ms. Kahoot confirmed the nickname — confirm it appears on the host screen; only the host screen proves the seat.`,
         latencyMs,
         connectedAt: Date.now(),
       });
-      pushActivity('connection', `Connected (live) · PIN ${pin} · ${nickname} · ${Math.round(latencyMs)} ms`);
-      pushToast({ title: 'Joined live game', body: `PIN ${pin} · "${nickname}"`, tone: 'success' });
+      pushActivity('connection', `Live join accepted · PIN ${pin} · ${nickname} · ${Math.round(latencyMs)} ms (seat: verify on host screen)`);
+      pushToast({ title: 'Join accepted — verify your seat', body: `PIN ${pin} · "${nickname}" — check the host screen for your nickname.`, tone: 'success' });
       return true;
     } catch (e) {
       const err = e as LiveBackendError;

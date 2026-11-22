@@ -12,6 +12,8 @@
     "server": "tsx watch server/index.ts",
     "server:start": "node dist-server/server/index.js",
     "server:build": "tsc -p tsconfig.server.json && echo '{\"type\":\"commonjs\"}' > dist-server/package.json && echo built dist-server",
+    "connector:bundle": "esbuild server/index.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist-connector/kb-connector.cjs --log-level=error && node -e \"console.log('bundled dist-connector/kb-connector.cjs')\"",
+    "connector:test-bundle": "npm run connector:bundle && tsx server/kahoot/__tests__/bundle.test.ts",
     "test:live": "esbuild server/kahoot/__tests__/live.test.ts --bundle --platform=node --format=cjs --outfile=node_modules/.cache/kb-live-test.cjs --log-level=error && node node_modules/.cache/kb-live-test.cjs",
     "test:direct": "esbuild server/kahoot/__tests__/direct.test.ts --bundle --platform=node --format=cjs --outfile=node_modules/.cache/kb-direct-test.cjs --log-level=error && node node_modules/.cache/kb-direct-test.cjs"
   },
