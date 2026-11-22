@@ -5,6 +5,7 @@
   "description": "KAHOOT BOSS — Intelligence. Automation. Control. Premium AI-powered Kahoot test automation platform.",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
+    "prebuild": "npm run connector:bundle --silent && mkdir -p public && cp dist-connector/kb-connector.cjs public/kb-connector.cjs && echo staged public/kb-connector.cjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "typecheck": "tsc --noEmit",

@@ -253,7 +253,7 @@ export default function Settings() {
                   tone="info"
                   title="Standalone connector (easiest local option)"
                   body="One file, no install besides Node 20+: download it, run `node kb-connector.cjs`, keep it running while you play, and use http://127.0.0.1:3001 above. Reserve and game channel then share your network."
-                  action={<Button size="sm" variant="secondary" onClick={() => window.open('https://github.com/Coder448-ops/kahoot-boss/releases/download/connector-v1/kb-connector.cjs', '_blank', 'noopener')}><Download size={14} /> Download kb-connector.cjs</Button>}
+                  action={<Button size="sm" variant="secondary" onClick={() => window.open('/kb-connector.cjs', '_blank', 'noopener')}><Download size={14} /> Download kb-connector.cjs</Button>}
                 />
               </>
             )}

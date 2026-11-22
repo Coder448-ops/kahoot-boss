@@ -26,3 +26,4 @@ coverage/
 *.tsbuildinfo
 dist-server/
 dist-connector/
+public/kb-connector.cjs
